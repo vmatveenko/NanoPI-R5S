@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backups created by scripts
+router-backup-*/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
