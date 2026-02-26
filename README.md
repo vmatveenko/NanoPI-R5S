@@ -24,47 +24,168 @@
 | `eth2` | LAN | Объединён в мост `br0` |
 | `br0` | LAN bridge | Подсеть по умолчанию `192.168.10.0/24` |
 
+---
+
+## Ручная настройка после прошивки ОС
+
+> **Выполняется вручную через консоль (UART/SSH) сразу после прошивки
+> официального образа Ubuntu (FriendlyELEC) на eMMC.**
+> Интернета на этом этапе может не быть — скрипты из репозитория недоступны.
+
+### 1. Вход и смена пароля
+
+По умолчанию: `root` / `fa`
+
+```bash
+passwd
+```
+
+### 2. Проверка загрузки с eMMC
+
+```bash
+lsblk
+```
+
+Корневой раздел должен быть на `mmcblk1` (eMMC).
+Если на `mmcblk0` — система загрузилась с SD-карты, извлеките её и перезагрузитесь.
+
+### 3. Проверка версии ОС
+
+```bash
+lsb_release -a
+# или
+cat /etc/os-release
+uname -r
+```
+
+### 4. Проверка сетевых интерфейсов
+
+```bash
+ip a
+ip link
+```
+
+Убедитесь, что `eth0`, `eth1`, `eth2` присутствуют.
+
+### 5. Диагностика интернета (WAN)
+
+```bash
+# Есть ли IP на WAN?
+ip a show eth0
+
+# Есть ли маршрут по умолчанию?
+ip route
+
+# Пинг по IP (без DNS)
+ping -c 3 8.8.8.8
+
+# Пинг по домену (нужен DNS)
+ping -c 3 google.com
+```
+
+**Возможные ситуации:**
+
+| ping 8.8.8.8 | ping google.com | Проблема | Решение |
+|:---:|:---:|---|---|
+| ✅ | ✅ | Нет проблем | Переходите к шагу 8 |
+| ✅ | ❌ | Нет DNS | Шаг 6 |
+| ❌ | ❌ | Нет интернета | Шаг 7, затем 6 |
+
+### 6. Исправление DNS (типичная проблема FriendlyELEC)
+
+**Суть проблемы:** `/etc/resolv.conf` — битый symlink на `systemd-resolved`,
+который не запущен (`inactive (dead)`). Домены не резолвятся.
+
+Проверяем:
+
+```bash
+ls -l /etc/resolv.conf
+# Если видите красный файл или:
+#   /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf
+# — это оно.
+
+systemctl status systemd-resolved
+# Скорее всего: inactive (dead)
+```
+
+Исправляем:
+
+```bash
+# Отключаем systemd-resolved (не нужен на роутере)
+systemctl disable systemd-resolved
+systemctl stop systemd-resolved
+
+# Удаляем битый symlink
+rm /etc/resolv.conf
+
+# Создаём нормальный файл DNS
+cat > /etc/resolv.conf << 'EOF'
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+EOF
+
+# Защищаем от перезаписи
+chattr +i /etc/resolv.conf
+```
+
+Проверяем:
+
+```bash
+ping -c 3 google.com
+# Должен работать
+```
+
+### 7. Если WAN не получает IP по DHCP
+
+```bash
+# Проверить статус линка
+ip link show eth0
+# Должно быть: state UP
+
+# Принудительно запросить DHCP
+dhclient eth0
+
+# Или через networkctl
+networkctl reconfigure eth0
+
+# Проверить результат
+ip a show eth0
+ip route
+ping -c 3 8.8.8.8
+```
+
+### 8. Обновление системы
+
+```bash
+apt update
+apt upgrade -y
+```
+
+### 9. Установка git и клонирование проекта
+
+```bash
+apt install -y git
+git clone <repo-url> ~/nanopi-router
+cd ~/nanopi-router
+chmod +x scripts/*.sh
+```
+
+После этого можно запускать скрипты из репозитория.
+
+---
+
 ## Скрипты
 
-| # | Скрипт | Описание |
-|---|--------|----------|
-| 0 | `scripts/00-init-fix.sh` | Инициализация после установки ОС: диагностика, исправление DNS |
-| 1 | `scripts/01-router-setup.sh` | Настройка роутера: netplan, nftables, NAT, DHCP |
+| Скрипт | Описание |
+|--------|----------|
+| `scripts/01-router-setup.sh` | Настройка роутера: netplan, nftables, NAT, DHCP |
 
 ## Быстрый старт
 
 ```bash
-# Клонировать репозиторий на устройство
-git clone <repo-url> ~/nanopi-router
 cd ~/nanopi-router
-
-# Сделать скрипты исполняемыми
-chmod +x scripts/*.sh
-
-# 1. Инициализация (после свежей установки ОС)
-sudo ./scripts/00-init-fix.sh
-
-# 2. Настройка роутера
 sudo ./scripts/01-router-setup.sh
 ```
-
-## Что делает `00-init-fix.sh`
-
-Скрипт решает типичные проблемы свежей прошивки официального образа Ubuntu (FriendlyELEC):
-
-| Проблема | Причина | Что делает скрипт |
-|----------|---------|-------------------|
-| Нет DNS (ping IP работает, ping домена — нет) | `/etc/resolv.conf` — битый symlink на `systemd-resolved`, который не запущен | Удаляет symlink, создаёт реальный файл, отключает `systemd-resolved` |
-| Нет интернета вообще | WAN не получил IP по DHCP | Пробует запустить `dhclient` / `networkctl reconfigure` |
-
-**Порядок действий:**
-
-1. Проверяет загрузку с eMMC (не с SD-карты)
-2. Сканирует сетевые интерфейсы (`eth0`, `eth1`, `eth2`)
-3. Диагностирует WAN-подключение и default route
-4. Проверяет и исправляет DNS (`/etc/resolv.conf`)
-5. Отключает `systemd-resolved` (не нужен на роутере)
-6. Предлагает обновить систему (`apt upgrade`)
 
 ## Что делает `01-router-setup.sh`
 
