@@ -159,6 +159,38 @@ apt-get update -qq
 apt-get install -y nftables isc-dhcp-server
 ok "Пакеты установлены: nftables, isc-dhcp-server"
 
+# ── Переключение на systemd-networkd ─────────────────────────
+# Образ FriendlyELEC использует NetworkManager, а netplan с renderer: networkd
+# требует systemd-networkd. Переключаемся.
+info "Настройка сетевого стека..."
+
+if systemctl is-active --quiet NetworkManager 2>/dev/null; then
+    info "Отключаем NetworkManager (не нужен для роутера)..."
+    systemctl stop NetworkManager
+    systemctl disable NetworkManager
+    ok "NetworkManager отключён"
+fi
+
+if ! systemctl is-active --quiet systemd-networkd 2>/dev/null; then
+    info "Включаем systemd-networkd..."
+    systemctl enable systemd-networkd
+    systemctl start systemd-networkd
+    ok "systemd-networkd запущен"
+else
+    ok "systemd-networkd уже активен"
+fi
+
+# Включаем systemd-resolved для DNS на WAN
+if ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+    systemctl enable systemd-resolved
+    systemctl start systemd-resolved
+    # Создаём symlink для /etc/resolv.conf если его нет или он битый
+    if [ ! -e /etc/resolv.conf ]; then
+        ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    fi
+    ok "systemd-resolved запущен"
+fi
+
 # ── Netplan: мост br0 (eth1+eth2), WAN на eth0 ─────────────
 info "Настройка netplan..."
 rm -f /etc/netplan/*.yaml
