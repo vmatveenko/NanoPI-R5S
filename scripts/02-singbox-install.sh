@@ -203,30 +203,30 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
     info "Генерация базового конфига..."
 
     # Формирование DNS-серверов в новом формате sing-box 1.12+
-    # dns-direct
+    # dns-direct — для резолвинга обычных доменов (без VPN)
     if [ "$DNS_DIRECT" = "local" ]; then
         DNS_DIRECT_OBJ=$(jq -n '{"tag": "dns-direct", "type": "local"}')
     elif echo "$DNS_DIRECT" | grep -qE '^https://'; then
         DNS_DIRECT_HOST=$(echo "$DNS_DIRECT" | sed 's|https://||' | cut -d/ -f1)
         DNS_DIRECT_OBJ=$(jq -n --arg s "$DNS_DIRECT_HOST" \
-            '{"tag": "dns-direct", "type": "https", "server": $s, "detour": "direct"}')
+            '{"tag": "dns-direct", "type": "https", "server": $s}')
     else
         DNS_DIRECT_OBJ=$(jq -n --arg s "$DNS_DIRECT" \
-            '{"tag": "dns-direct", "type": "udp", "server": $s, "detour": "direct"}')
+            '{"tag": "dns-direct", "type": "udp", "server": $s}')
     fi
 
-    # dns-vpn
+    # dns-vpn — для резолвинга VPN-доменов (detour добавляется позже через singbox-add-group.sh)
     if echo "$DNS_VPN" | grep -qE '^https://'; then
         DNS_VPN_HOST=$(echo "$DNS_VPN" | sed 's|https://||' | cut -d/ -f1)
         DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN_HOST" \
-            '{"tag": "dns-vpn", "type": "https", "server": $s, "detour": "direct"}')
+            '{"tag": "dns-vpn", "type": "https", "server": $s}')
     elif echo "$DNS_VPN" | grep -qE '^tls://'; then
         DNS_VPN_HOST=$(echo "$DNS_VPN" | sed 's|tls://||' | cut -d/ -f1)
         DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN_HOST" \
-            '{"tag": "dns-vpn", "type": "tls", "server": $s, "detour": "direct"}')
+            '{"tag": "dns-vpn", "type": "tls", "server": $s}')
     else
         DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN" \
-            '{"tag": "dns-vpn", "type": "udp", "server": $s, "detour": "direct"}')
+            '{"tag": "dns-vpn", "type": "udp", "server": $s}')
     fi
 
     # Сборка полного конфига через jq (формат sing-box 1.13+)
