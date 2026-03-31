@@ -13,17 +13,12 @@ source "$SCRIPT_DIR/scripts/singbox-common.sh"
 
 # ── Визуальные константы ────────────────────────────────────
 DIM='\033[2m'
-W=48
 
-draw_box() {
+draw_header() {
     local title="$1" color="${2:-$CYAN}"
-    local pad=$(( (W - ${#title} - 2) / 2 ))
-    local lpad=$(printf '%*s' "$pad" '' | tr ' ' '═')
-    local rpad=$(printf '%*s' $(( W - ${#title} - 2 - pad )) '' | tr ' ' '═')
     echo ""
-    echo -e "${color}${BOLD}╔$(printf '%*s' $W '' | tr ' ' '═')╗${NC}"
-    echo -e "${color}${BOLD}║${lpad} ${title} ${rpad}║${NC}"
-    echo -e "${color}${BOLD}╚$(printf '%*s' $W '' | tr ' ' '═')╝${NC}"
+    echo -e "  ${color}${BOLD}▌ ${title}${NC}"
+    echo -e "  ${color}$(printf '%.0s━' $(seq 1 44))${NC}"
 }
 
 draw_section() {
@@ -44,7 +39,7 @@ urldecode() {
 #  СТАТУС
 # ════════════════════════════════════════════════════════════
 cmd_status() {
-    draw_box "sing-box Status"
+    draw_header "Статус"
 
     local version
     version=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
@@ -77,35 +72,39 @@ cmd_status() {
     # ── Outbound'ы ──
     draw_section "Серверы и группы"
 
-    local i=1
-    jq -r '.outbounds[] | "\(.type)\t\(.tag)\t\(.server // "")\t\(.server_port // "")\t\(.outbounds // [] | join(", "))"' "$SINGBOX_CONFIG" 2>/dev/null | \
-    while IFS=$'\t' read -r type tag server port members; do
-        case "$type" in
+    local ob_count
+    ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
+    for ((oi=0; oi<ob_count; oi++)); do
+        local ob_type ob_tag ob_server ob_port ob_members ob_num=$((oi + 1))
+        ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
+        ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
+        ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
+        ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
+        ob_members=$(jq -r "(.outbounds[$oi].outbounds // []) | join(\", \")" "$SINGBOX_CONFIG")
+        case "$ob_type" in
             vless)
-                printf "  ${CYAN}%2d${NC}  %-10s %-22s %s:%s\n" "$i" "[$type]" "$tag" "$server" "$port"
+                printf "  ${CYAN}%2d${NC}  %-10s %-22s %s:%s\n" "$ob_num" "[$ob_type]" "$ob_tag" "$ob_server" "$ob_port"
                 ;;
             urltest|selector)
-                printf "  ${YELLOW}%2d${NC}  %-10s %-22s %s\n" "$i" "[$type]" "$tag" "$members"
+                printf "  ${YELLOW}%2d${NC}  %-10s %-22s %s\n" "$ob_num" "[$ob_type]" "$ob_tag" "$ob_members"
                 ;;
             direct)
-                printf "  ${GREEN}%2d${NC}  %-10s %s\n" "$i" "[$type]" "$tag"
+                printf "  ${GREEN}%2d${NC}  %-10s %s\n" "$ob_num" "[$ob_type]" "$ob_tag"
                 ;;
             block)
-                printf "  ${RED}%2d${NC}  %-10s %s\n" "$i" "[$type]" "$tag"
+                printf "  ${RED}%2d${NC}  %-10s %s\n" "$ob_num" "[$ob_type]" "$ob_tag"
                 ;;
             *)
-                printf "  %2d  %-10s %s\n" "$i" "[$type]" "$tag"
+                printf "  %2d  %-10s %s\n" "$ob_num" "[$ob_type]" "$ob_tag"
                 ;;
         esac
-        ((i++))
     done
 
     # ── Правила маршрутизации ──
     draw_section "Правила маршрутизации"
 
-    local rules_count
+    local rules_count ri=1
     rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
-    i=1
     for ((idx=0; idx<rules_count; idx++)); do
         local rule outbound action
         rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
@@ -116,54 +115,55 @@ cmd_status() {
             local proto
             proto=$(echo "$rule" | jq -r '.protocol // ""')
             if [ -n "$proto" ]; then
-                printf "  ${DIM}%2d${NC}  protocol: %-12s action: %s\n" "$i" "$proto" "$action"
+                printf "  ${DIM}%2d${NC}  protocol: %-12s action: %s\n" "$ri" "$proto" "$action"
             else
-                printf "  ${DIM}%2d${NC}  action: %s\n" "$i" "$action"
+                printf "  ${DIM}%2d${NC}  action: %s\n" "$ri" "$action"
             fi
         elif echo "$rule" | jq -e '.inbound' >/dev/null 2>&1; then
             local inb
             inb=$(echo "$rule" | jq -r '.inbound | join(", ")')
-            printf "  %2d  inbound: %-18s → %s\n" "$i" "$inb" "$outbound"
+            printf "  %2d  inbound: %-18s → %s\n" "$ri" "$inb" "$outbound"
         elif echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
             local rs
             rs=$(echo "$rule" | jq -r '.rule_set | join(", ")')
-            printf "  %2d  rule-set: %-17s → %s\n" "$i" "$rs" "$outbound"
+            printf "  %2d  rule-set: %-17s → %s\n" "$ri" "$rs" "$outbound"
         elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
             local dom
             dom=$(echo "$rule" | jq -r '.domain | join(", ")')
-            printf "  %2d  domain: %-18s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$dom" "$outbound"
+            printf "  %2d  domain: %-18s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$dom" "$outbound"
         elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
             local ds
             ds=$(echo "$rule" | jq -r '.domain_suffix | join(", ")')
-            printf "  %2d  domain_suffix: %-11s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$ds" "$outbound"
+            printf "  %2d  domain_suffix: %-11s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$ds" "$outbound"
         elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
             local dk
             dk=$(echo "$rule" | jq -r '.domain_keyword | join(", ")')
-            printf "  %2d  domain_keyword: %-10s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$dk" "$outbound"
+            printf "  %2d  domain_keyword: %-10s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$dk" "$outbound"
         elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
             local ic
             ic=$(echo "$rule" | jq -r '.ip_cidr | join(", ")')
-            printf "  %2d  ip_cidr: %-17s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$ic" "$outbound"
+            printf "  %2d  ip_cidr: %-17s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$ic" "$outbound"
         else
-            printf "  %2d  (другое)                   → %s\n" "$i" "$outbound"
+            printf "  %2d  (другое)                   → %s\n" "$ri" "$outbound"
         fi
-        ((i++))
+        ri=$((ri + 1))
     done
 
     local final
     final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    printf "  ${DIM}%2d  * (final)                   → %s${NC}\n" "$i" "$final"
+    printf "  ${DIM}%2d  * (final)                   → %s${NC}\n" "$ri" "$final"
 
     # ── DNS ──
     draw_section "DNS"
 
-    jq -r '.dns.servers[] | @json' "$SINGBOX_CONFIG" 2>/dev/null | \
-    while read -r entry; do
+    local dns_servers_count
+    dns_servers_count=$(jq '.dns.servers | length' "$SINGBOX_CONFIG" 2>/dev/null)
+    for ((di=0; di<dns_servers_count; di++)); do
         local d_tag d_type d_server d_detour
-        d_tag=$(echo "$entry" | jq -r '.tag // "?"')
-        d_type=$(echo "$entry" | jq -r '.type // "?"')
-        d_server=$(echo "$entry" | jq -r '.server // ""')
-        d_detour=$(echo "$entry" | jq -r '.detour // "-"')
+        d_tag=$(jq -r ".dns.servers[$di].tag // \"?\"" "$SINGBOX_CONFIG")
+        d_type=$(jq -r ".dns.servers[$di].type // \"?\"" "$SINGBOX_CONFIG")
+        d_server=$(jq -r ".dns.servers[$di].server // \"\"" "$SINGBOX_CONFIG")
+        d_detour=$(jq -r ".dns.servers[$di].detour // \"-\"" "$SINGBOX_CONFIG")
         if [ -n "$d_server" ]; then
             printf "  %-14s %s://%s  (detour: %s)\n" "$d_tag:" "$d_type" "$d_server" "$d_detour"
         else
@@ -215,7 +215,7 @@ cmd_status() {
 #  ДОБАВИТЬ VLESS
 # ════════════════════════════════════════════════════════════
 cmd_add_vless() {
-    draw_box "Добавить VLESS-сервер"
+    draw_header "Добавить VLESS-сервер"
 
     local VLESS_TAG="" VLESS_SERVER="" VLESS_PORT=""
     local VLESS_UUID="" VLESS_FLOW="" VLESS_SECURITY="none"
@@ -385,7 +385,7 @@ cmd_add_vless() {
 #  СОЗДАТЬ ГРУППУ
 # ════════════════════════════════════════════════════════════
 cmd_add_group() {
-    draw_box "Создать группу"
+    draw_header "Создать группу"
 
     local vless_tags
     vless_tags=$(jq -r '.outbounds[] | select(.type == "vless") | .tag' "$SINGBOX_CONFIG")
@@ -401,7 +401,7 @@ cmd_add_group() {
         local srv
         srv=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | "\(.server):\(.server_port)"' "$SINGBOX_CONFIG")
         printf "  %2d  %-24s %s\n" "$i" "$tag" "$srv"
-        ((i++))
+        i=$((i + 1))
     done <<< "$vless_tags"
 
     echo ""
@@ -505,17 +505,17 @@ cmd_add_group() {
 #  ДОБАВИТЬ ПРАВИЛО
 # ════════════════════════════════════════════════════════════
 cmd_add_rule() {
-    draw_box "Добавить правило"
+    draw_header "Добавить правило"
     echo ""
     echo "  Тип правила:"
     echo ""
-    echo "    ${BOLD}Ручные (высший приоритет):${NC}"
+    echo -e "    ${BOLD}Ручные (высший приоритет):${NC}"
     echo "    1) domain          точное совпадение"
     echo "    2) domain_suffix   суффикс (*.example.com)"
     echo "    3) domain_keyword  ключевое слово"
     echo "    4) ip_cidr         подсеть IP"
     echo ""
-    echo "    ${BOLD}Rule-set (community списки):${NC}"
+    echo -e "    ${BOLD}Rule-set (community списки):${NC}"
     echo "    5) geosite         категория (youtube, google...)"
     echo "    6) geoip           страна по IP (ru, us...)"
     echo ""
@@ -534,16 +534,32 @@ cmd_add_rule() {
     if [ "$rule_type" = "geosite" ]; then
         echo ""
         echo "  Категории geosite:"
-        echo "    1) youtube    5) twitter    9) openai"
-        echo "    2) google     6) telegram  10) другое"
-        echo "    3) facebook   7) netflix"
-        echo "    4) instagram  8) tiktok"
-        read -p "  Выбор [10]: " gc; gc=${gc:-10}
+        echo "     1) youtube       9) telegram    17) spotify"
+        echo "     2) google      10) whatsapp    18) twitch"
+        echo "     3) facebook    11) tiktok      19) github"
+        echo "     4) instagram   12) netflix     20) stackoverflow"
+        echo "     5) twitter     13) openai      21) reddit"
+        echo "     6) amazon      14) discord     22) linkedin"
+        echo "     7) microsoft   15) steam       23) wikipedia"
+        echo "     8) apple       16) paypal      24) другое (ввести вручную)"
+        echo ""
+        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite${NC}"
+        echo ""
+        read -p "  Выбор [24]: " gc; gc=${gc:-24}
         case "$gc" in
-            1) rule_value="youtube";; 2) rule_value="google";; 3) rule_value="facebook";;
-            4) rule_value="instagram";; 5) rule_value="twitter";; 6) rule_value="telegram";;
-            7) rule_value="netflix";; 8) rule_value="tiktok";; 9) rule_value="openai";;
-            10) read -p "  Имя категории: " rule_value;;
+            1)  rule_value="youtube";;       2)  rule_value="google";;
+            3)  rule_value="facebook";;      4)  rule_value="instagram";;
+            5)  rule_value="twitter";;       6)  rule_value="amazon";;
+            7)  rule_value="microsoft";;     8)  rule_value="apple";;
+            9)  rule_value="telegram";;      10) rule_value="whatsapp";;
+            11) rule_value="tiktok";;        12) rule_value="netflix";;
+            13) rule_value="openai";;        14) rule_value="discord";;
+            15) rule_value="steam";;         16) rule_value="paypal";;
+            17) rule_value="spotify";;       18) rule_value="twitch";;
+            19) rule_value="github";;        20) rule_value="stackoverflow";;
+            21) rule_value="reddit";;        22) rule_value="linkedin";;
+            23) rule_value="wikipedia";;
+            24) read -p "  Имя категории: " rule_value;;
             *) err "Неверно"; return;;
         esac
         ruleset_tag="geosite-${rule_value}"
@@ -551,11 +567,19 @@ cmd_add_rule() {
     elif [ "$rule_type" = "geoip" ]; then
         echo ""
         echo "  Страны geoip:"
-        echo "    1) ru   2) us   3) cn   4) de   5) другое"
-        read -p "  Выбор [5]: " gc; gc=${gc:-5}
+        echo "     1) ru — Россия       5) nl — Нидерланды"
+        echo "     2) us — США          6) jp — Япония"
+        echo "     3) de — Германия     7) ua — Украина"
+        echo "     4) cn — Китай        8) другое (ввести код)"
+        echo ""
+        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geoip${NC}"
+        echo ""
+        read -p "  Выбор [8]: " gc; gc=${gc:-8}
         case "$gc" in
-            1) rule_value="ru";; 2) rule_value="us";; 3) rule_value="cn";; 4) rule_value="de";;
-            5) read -p "  Код страны (2 буквы): " rule_value; rule_value=$(echo "$rule_value" | tr '[:upper:]' '[:lower:]');;
+            1) rule_value="ru";; 2) rule_value="us";; 3) rule_value="de";;
+            4) rule_value="cn";; 5) rule_value="nl";; 6) rule_value="jp";;
+            7) rule_value="ua";;
+            8) read -p "  Код страны (2 буквы): " rule_value; rule_value=$(echo "$rule_value" | tr '[:upper:]' '[:lower:]');;
             *) err "Неверно"; return;;
         esac
         ruleset_tag="geoip-${rule_value}"
@@ -582,7 +606,7 @@ cmd_add_rule() {
         local ob_type
         ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
         printf "    %d) [%-10s] %s\n" "$i" "$ob_type" "$ob"
-        ((i++))
+        i=$((i + 1))
     done <<< "$outbounds"
     echo ""
     read -p "  Outbound (номер): " ob_num
@@ -660,7 +684,7 @@ cmd_add_rule() {
 #  ПРИМЕНИТЬ
 # ════════════════════════════════════════════════════════════
 cmd_apply() {
-    draw_box "Применить конфигурацию" "$GREEN"
+    draw_header "Применить конфигурацию" "$GREEN"
     echo ""
     apply_config
     sleep 1
@@ -685,7 +709,7 @@ offer_apply_inline() {
 #  УДАЛИТЬ СЕРВЕР / ГРУППУ
 # ════════════════════════════════════════════════════════════
 cmd_delete_outbound() {
-    draw_box "Удалить сервер / группу" "$RED"
+    draw_header "Удалить сервер / группу" "$RED"
 
     local custom_obs
     custom_obs=$(jq -r '.outbounds[] | select(.type != "direct" and .type != "block" and .type != "dns") | .tag' "$SINGBOX_CONFIG")
@@ -701,7 +725,7 @@ cmd_delete_outbound() {
         local ob_type
         ob_type=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
         printf "  %2d  [%-10s] %s\n" "$i" "$ob_type" "$tag"
-        ((i++))
+        i=$((i + 1))
     done <<< "$custom_obs"
     echo ""
     read -p "  Номер для удаления (0 — отмена): " num
@@ -736,7 +760,7 @@ cmd_delete_outbound() {
 #  УДАЛИТЬ ПРАВИЛО
 # ════════════════════════════════════════════════════════════
 cmd_delete_rule() {
-    draw_box "Удалить правило" "$RED"
+    draw_header "Удалить правило" "$RED"
 
     local rules_count user_rules=0
     rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
@@ -752,7 +776,7 @@ cmd_delete_rule() {
         [ -n "$action" ] && [ "$action" != "route" ] && continue
         echo "$rule" | jq -e '.inbound' >/dev/null 2>&1 && continue
 
-        ((user_rules++))
+        user_rules=$((user_rules + 1))
         rule_indices+=("$idx")
         local label=""
         if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
@@ -852,8 +876,8 @@ main_menu() {
         echo "    4)  Добавить правило   маршрутизация трафика"
         echo "    5)  Применить          проверить и перезапустить"
         echo ""
-        echo "    6)  Удалить сервер     убрать outbound"
-        echo "    7)  Удалить правило    убрать правило"
+        echo "    6)  Удалить сервер/группу"
+        echo "    7)  Удалить правило"
         echo ""
         echo "    0)  Выход"
         echo ""
