@@ -29,6 +29,12 @@
 | Скрипт | Описание |
 |--------|----------|
 | `scripts/01-router-setup.sh` | Настройка роутера: netplan, nftables, NAT, DHCP |
+| `scripts/02-singbox-install.sh` | Установка sing-box: TUN, proxy, split DNS |
+| `scripts/singbox-add-vless.sh` | Добавить VLESS-подключение (URI или вручную) |
+| `scripts/singbox-add-group.sh` | Создать группу outbound'ов (urltest / selector) |
+| `scripts/singbox-add-rule.sh` | Добавить правило маршрутизации (domain, geosite, geoip) |
+| `scripts/singbox-status.sh` | Показать текущую конфигурацию и статус |
+| `scripts/singbox-apply.sh` | Валидация конфига и перезапуск sing-box |
 
 ## Быстрый старт
 
@@ -70,6 +76,91 @@ sudo ./scripts/01-router-setup.sh
 | DNS | `8.8.8.8`, `1.1.1.1` |
 
 Все параметры можно изменить при запуске скрипта.
+
+## sing-box — прозрачный прокси и VPN
+
+[sing-box](https://sing-box.sagernet.org/) — универсальная прокси-платформа с поддержкой VLESS, TUN, rule-based routing и split DNS.
+
+### Архитектура
+
+```
+Устройство в LAN
+      │
+      ▼
+    br0 (LAN bridge)
+      │
+      ▼  (policy routing)
+    tun0 (sing-box TUN)
+      │
+      ▼
+  ┌─────────────────────┐
+  │      sing-box        │
+  │                      │
+  │  route rules:        │
+  │  youtube → VPN       │
+  │  *       → direct    │
+  └──────┬───────┬───────┘
+    VPN выход  Direct выход
+    (VLESS)    (напрямую)
+         │       │
+         ▼       ▼
+        eth0 (WAN) → Интернет
+```
+
+- **TUN** (`tun0`) — прозрачный прокси для всего LAN-трафика. Устройства ничего не настраивают.
+- **Proxy** (SOCKS5 + HTTP, порт 2080) — для устройств/ПО, которые нужно целиком пустить через VPN.
+- **Split DNS** — домены, идущие через VPN, резолвятся через DoH по VPN-туннелю.
+
+### Установка sing-box
+
+```bash
+sudo ./scripts/02-singbox-install.sh
+```
+
+### Типовой сценарий настройки
+
+```bash
+# 1. Добавить VLESS-серверы (можно вставить URI-ссылку)
+sudo ./scripts/singbox-add-vless.sh
+sudo ./scripts/singbox-add-vless.sh
+
+# 2. Создать группу с автовыбором (failover + latency)
+sudo ./scripts/singbox-add-group.sh
+
+# 3. Добавить правила маршрутизации
+sudo ./scripts/singbox-add-rule.sh     # youtube → proxy
+sudo ./scripts/singbox-add-rule.sh     # google  → proxy
+
+# 4. Применить конфигурацию
+sudo ./scripts/singbox-apply.sh
+
+# 5. Проверить статус
+sudo ./scripts/singbox-status.sh
+```
+
+### Использование proxy (SOCKS/HTTP)
+
+Для устройств, которые нужно целиком пустить через VPN, настройте прокси:
+
+| Параметр | Значение |
+|----------|----------|
+| Тип | SOCKS5 или HTTP |
+| Адрес | IP роутера (например `192.168.10.1`) |
+| Порт | `2080` (по умолчанию) |
+
+### Что делает `02-singbox-install.sh`
+
+1. Устанавливает зависимости (`curl`, `jq`)
+2. Скачивает последнюю версию sing-box с GitHub
+3. Создаёт systemd-сервис
+4. Запрашивает параметры (порт proxy, TUN-адрес, DNS)
+5. Генерирует базовый конфиг (весь трафик → direct)
+6. Добавляет правила `tun0` в nftables
+7. Запускает sing-box
+
+При повторном запуске: обновляет бинарник и nftables, **не трогает конфиг** (сохраняет VPN и правила).
+
+> **Важно:** после повторного запуска `01-router-setup.sh` необходимо перезапустить `02-singbox-install.sh` для восстановления nftables-правил sing-box.
 
 ## Проброс портов
 
