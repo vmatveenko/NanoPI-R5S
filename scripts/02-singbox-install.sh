@@ -47,6 +47,14 @@ else
     ok "Зависимости в наличии (curl, jq)"
 fi
 
+# ── Определение подсети LAN ───────────────────────────────
+LAN_NET=$(ip -4 route show dev br0 2>/dev/null | awk '/proto kernel/ || /scope link/ {print $1; exit}')
+if [ -z "$LAN_NET" ]; then
+    LAN_NET="192.168.10.0/24"
+    warn "Не удалось определить подсеть LAN, используем $LAN_NET"
+fi
+info "Подсеть LAN: $LAN_NET"
+
 # ── Проверка текущей установки ──────────────────────────────
 SINGBOX_INSTALLED=0
 CURRENT_VERSION=""
@@ -82,6 +90,28 @@ if [ -f "$SINGBOX_CONFIG" ]; then
     CONFIG_EXISTS=1
     warn "Конфиг $SINGBOX_CONFIG уже существует — параметры не запрашиваются"
     warn "Конфиг не будет перезаписан (VPN/правила сохранятся)"
+
+    # Миграция: добавить route_exclude_address если отсутствует
+    if ! jq -e '.inbounds[] | select(.type == "tun") | .route_exclude_address' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
+        info "Миграция: добавление route_exclude_address ($LAN_NET) в TUN..."
+        jq --arg net "$LAN_NET" '
+            .inbounds |= map(
+                if .type == "tun" then . + {route_exclude_address: [$net]} else . end
+            )
+        ' "$SINGBOX_CONFIG" > "${SINGBOX_CONFIG}.tmp" && mv "${SINGBOX_CONFIG}.tmp" "$SINGBOX_CONFIG"
+        ok "route_exclude_address добавлен"
+    fi
+
+    # Миграция: заменить dns-direct type:local на udp (петля с TUN)
+    if jq -e '.dns.servers[] | select(.tag == "dns-direct" and .type == "local")' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
+        info "Миграция: замена dns-direct local → udp://8.8.8.8..."
+        jq '.dns.servers |= map(
+            if .tag == "dns-direct" and .type == "local" then
+                {tag: "dns-direct", type: "udp", server: "8.8.8.8"}
+            else . end
+        )' "$SINGBOX_CONFIG" > "${SINGBOX_CONFIG}.tmp" && mv "${SINGBOX_CONFIG}.tmp" "$SINGBOX_CONFIG"
+        ok "dns-direct мигрирован"
+    fi
 fi
 
 DEFAULT_PROXY_PORT="2080"
@@ -245,6 +275,7 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
         --argjson dns_vpn "$DNS_VPN_OBJ" \
         --arg tun_addr "$TUN_ADDR" \
         --argjson proxy_port "$PROXY_PORT" \
+        --arg lan_net "$LAN_NET" \
     '{
         log: { level: "info", timestamp: true },
         dns: {
@@ -259,7 +290,8 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
                 interface_name: "tun0",
                 address: [$tun_addr],
                 auto_route: true,
-                strict_route: false
+                strict_route: false,
+                route_exclude_address: [$lan_net]
             },
             {
                 type: "mixed",
@@ -290,16 +322,36 @@ else
     info "Конфиг сохранён без изменений"
 fi
 
+# ── sysctl: отключение rp_filter для TUN ──────────────────
+info "Настройка sysctl для TUN..."
+cat > /etc/sysctl.d/99-singbox.conf <<'SYSCTL'
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter=0
+SYSCTL
+sysctl --system >/dev/null 2>&1
+ok "sysctl настроен (rp_filter отключён для TUN)"
+
 # ── Модификация nftables ────────────────────────────────────
 info "Проверка правил nftables для sing-box TUN..."
 
+NFTABLES_CHANGED=0
+
 if ! grep -q 'oifname "tun0"' /etc/nftables.conf 2>/dev/null; then
     info "Добавление правил tun0 в nftables..."
-    sed -i 's|iifname "br0" oifname "eth0" accept|iifname "br0" oifname "eth0" accept\n\n        # sing-box TUN — прозрачный прокси\n        iifname "br0" oifname "tun0" accept|' /etc/nftables.conf
-    systemctl restart nftables
+    sed -i 's|iifname "br0" oifname "eth0" accept|iifname "br0" oifname "eth0" accept\n\n        # sing-box TUN — прозрачный прокси\n        iifname "br0" oifname "tun0" accept\n        iifname "tun0" oifname "br0" accept|' /etc/nftables.conf
+    NFTABLES_CHANGED=1
     ok "Правила tun0 добавлены в nftables"
+elif ! grep -q 'iifname "tun0"' /etc/nftables.conf 2>/dev/null; then
+    info "Добавление обратного правила tun0 → br0..."
+    sed -i 's|iifname "br0" oifname "tun0" accept|iifname "br0" oifname "tun0" accept\n        iifname "tun0" oifname "br0" accept|' /etc/nftables.conf
+    NFTABLES_CHANGED=1
+    ok "Обратное правило tun0 → br0 добавлено"
 else
     ok "Правила tun0 уже есть в nftables"
+fi
+
+if [ "$NFTABLES_CHANGED" -eq 1 ]; then
+    systemctl restart nftables
 fi
 
 # ── Валидация конфига ───────────────────────────────────────
@@ -332,10 +384,17 @@ else
     warn "tun0 — не найден"
 fi
 
-if grep -q 'oifname "tun0"' /etc/nftables.conf; then
-    ok "nftables — правила tun0 на месте"
+if grep -q 'iifname "tun0"' /etc/nftables.conf && grep -q 'oifname "tun0"' /etc/nftables.conf; then
+    ok "nftables — правила tun0 на месте (br0↔tun0)"
 else
-    warn "nftables — правила tun0 отсутствуют!"
+    warn "nftables — правила tun0 неполные!"
+fi
+
+RP=$(cat /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || echo "?")
+if [ "$RP" = "0" ]; then
+    ok "rp_filter — отключён"
+else
+    warn "rp_filter = $RP (должен быть 0 для TUN)"
 fi
 
 # ── Итог ────────────────────────────────────────────────────
