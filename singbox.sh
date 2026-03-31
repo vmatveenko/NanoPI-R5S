@@ -742,12 +742,19 @@ cmd_delete_outbound() {
     backup_config
     local config
     config=$(cat "$SINGBOX_CONFIG")
+    # Удалить сам outbound
     config=$(echo "$config" | jq --arg tag "$del_tag" '.outbounds |= map(select(.tag != $tag))')
+    # Удалить из списков участников других групп
     config=$(echo "$config" | jq --arg tag "$del_tag" '
         .outbounds |= map(if .outbounds then .outbounds |= map(select(. != $tag)) else . end)
     ')
+    # Удалить правила маршрутизации, ссылающиеся на этот outbound
     config=$(echo "$config" | jq --arg tag "$del_tag" '
         .route.rules |= map(select(.outbound != $tag))
+    ')
+    # Удалить detour из DNS-серверов, ссылающихся на этот outbound
+    config=$(echo "$config" | jq --arg tag "$del_tag" '
+        .dns.servers |= map(if .detour == $tag then del(.detour) else . end)
     ')
 
     write_config "$config"
