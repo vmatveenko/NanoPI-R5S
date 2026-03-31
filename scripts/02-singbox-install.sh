@@ -202,77 +202,82 @@ fi
 if [ "$CONFIG_EXISTS" -eq 0 ]; then
     info "Генерация базового конфига..."
 
-    cat > "$SINGBOX_CONFIG" <<CONFIGEOF
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "dns": {
-    "servers": [
-      {
-        "tag": "dns-direct",
-        "address": "${DNS_DIRECT}",
-        "detour": "direct"
-      },
-      {
-        "tag": "dns-vpn",
-        "address": "${DNS_VPN}",
-        "address_resolver": "dns-direct",
-        "detour": "direct"
-      }
-    ],
-    "rules": [],
-    "final": "dns-direct"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "tun0",
-      "address": ["${TUN_ADDR}"],
-      "auto_route": true,
-      "strict_route": false,
-      "sniff": true,
-      "sniff_override_destination": true
-    },
-    {
-      "type": "mixed",
-      "tag": "proxy-in",
-      "listen": "::",
-      "listen_port": ${PROXY_PORT},
-      "sniff": true,
-      "sniff_override_destination": true
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    },
-    {
-      "type": "block",
-      "tag": "block"
-    },
-    {
-      "type": "dns",
-      "tag": "dns-out"
-    }
-  ],
-  "route": {
-    "rules": [
-      {
-        "protocol": "dns",
-        "outbound": "dns-out"
-      }
-    ],
-    "rule_set": [],
-    "final": "direct",
-    "auto_detect_interface": true,
-    "default_mark": 100
-  }
-}
-CONFIGEOF
+    # Формирование DNS-серверов в новом формате sing-box 1.12+
+    # dns-direct
+    if [ "$DNS_DIRECT" = "local" ]; then
+        DNS_DIRECT_OBJ=$(jq -n '{"tag": "dns-direct", "type": "local"}')
+    elif echo "$DNS_DIRECT" | grep -qE '^https://'; then
+        DNS_DIRECT_HOST=$(echo "$DNS_DIRECT" | sed 's|https://||' | cut -d/ -f1)
+        DNS_DIRECT_OBJ=$(jq -n --arg s "$DNS_DIRECT_HOST" \
+            '{"tag": "dns-direct", "type": "https", "server": $s, "detour": "direct"}')
+    else
+        DNS_DIRECT_OBJ=$(jq -n --arg s "$DNS_DIRECT" \
+            '{"tag": "dns-direct", "type": "udp", "server": $s, "detour": "direct"}')
+    fi
+
+    # dns-vpn
+    if echo "$DNS_VPN" | grep -qE '^https://'; then
+        DNS_VPN_HOST=$(echo "$DNS_VPN" | sed 's|https://||' | cut -d/ -f1)
+        DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN_HOST" \
+            '{"tag": "dns-vpn", "type": "https", "server": $s, "address_resolver": "dns-direct", "detour": "direct"}')
+    elif echo "$DNS_VPN" | grep -qE '^tls://'; then
+        DNS_VPN_HOST=$(echo "$DNS_VPN" | sed 's|tls://||' | cut -d/ -f1)
+        DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN_HOST" \
+            '{"tag": "dns-vpn", "type": "tls", "server": $s, "address_resolver": "dns-direct", "detour": "direct"}')
+    else
+        DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN" \
+            '{"tag": "dns-vpn", "type": "udp", "server": $s, "address_resolver": "dns-direct", "detour": "direct"}')
+    fi
+
+    # Сборка полного конфига через jq
+    jq -n \
+        --argjson dns_direct "$DNS_DIRECT_OBJ" \
+        --argjson dns_vpn "$DNS_VPN_OBJ" \
+        --arg tun_addr "$TUN_ADDR" \
+        --argjson proxy_port "$PROXY_PORT" \
+    '{
+        log: { level: "info", timestamp: true },
+        dns: {
+            servers: [$dns_direct, $dns_vpn],
+            rules: [],
+            final: "dns-direct"
+        },
+        inbounds: [
+            {
+                type: "tun",
+                tag: "tun-in",
+                interface_name: "tun0",
+                address: [$tun_addr],
+                auto_route: true,
+                strict_route: false,
+                sniff: true,
+                sniff_override_destination: true
+            },
+            {
+                type: "mixed",
+                tag: "proxy-in",
+                listen: "::",
+                listen_port: $proxy_port,
+                sniff: true,
+                sniff_override_destination: true
+            }
+        ],
+        outbounds: [
+            { type: "direct", tag: "direct" },
+            { type: "block", tag: "block" },
+            { type: "dns", tag: "dns-out" }
+        ],
+        route: {
+            rules: [
+                { protocol: "dns", outbound: "dns-out" }
+            ],
+            rule_set: [],
+            final: "direct",
+            auto_detect_interface: true,
+            default_mark: 100
+        }
+    }' > "$SINGBOX_CONFIG"
+
     ok "Базовый конфиг создан"
 else
     info "Конфиг сохранён без изменений"
