@@ -43,13 +43,15 @@ chmod +x scripts/*.sh singbox.sh
 sudo ./scripts/01-router-setup.sh
 ```
 
-**Обновление (если уже скачан):**
+**Переустановка Sing-box:**
 
 ```bash
 cd ~/nanopi-router
+git reset --hard
 git pull
+sudo rm /etc/sing-box/config.json
 chmod +x scripts/*.sh singbox.sh
-sudo ./scripts/01-router-setup.sh
+sudo ./scripts/02-singbox-install.sh
 ```
 
 ## Что делает `01-router-setup.sh`
