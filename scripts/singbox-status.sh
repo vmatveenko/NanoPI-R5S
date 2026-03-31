@@ -125,8 +125,18 @@ printf "  %2d. * (final)                      → %s\n" "$i" "$FINAL"
 echo ""
 echo -e "${BOLD}═══ DNS ═══${NC}"
 
-jq -r '.dns.servers[] | "  \(.tag):\t\(.address)\t(detour: \(.detour))"' "$SINGBOX_CONFIG" 2>/dev/null | \
-    column -t -s $'\t'
+jq -r '.dns.servers[] | @json' "$SINGBOX_CONFIG" 2>/dev/null | \
+while read -r DNS_ENTRY; do
+    D_TAG=$(echo "$DNS_ENTRY" | jq -r '.tag // "?"')
+    D_TYPE=$(echo "$DNS_ENTRY" | jq -r '.type // "?"')
+    D_SERVER=$(echo "$DNS_ENTRY" | jq -r '.server // ""')
+    D_DETOUR=$(echo "$DNS_ENTRY" | jq -r '.detour // "-"')
+    if [ -n "$D_SERVER" ]; then
+        printf "  %-14s %s://%s  (detour: %s)\n" "$D_TAG:" "$D_TYPE" "$D_SERVER" "$D_DETOUR"
+    else
+        printf "  %-14s %s  (detour: %s)\n" "$D_TAG:" "$D_TYPE" "$D_DETOUR"
+    fi
+done
 
 DNS_RULES_COUNT=$(jq '.dns.rules | length' "$SINGBOX_CONFIG" 2>/dev/null)
 if [ "$DNS_RULES_COUNT" -gt 0 ]; then

@@ -86,7 +86,7 @@ fi
 
 DEFAULT_PROXY_PORT="2080"
 DEFAULT_TUN_ADDR="172.19.0.1/30"
-DEFAULT_DNS_DIRECT="local"
+DEFAULT_DNS_DIRECT="8.8.8.8"
 DEFAULT_DNS_VPN="https://1.1.1.1/dns-query"
 
 if [ "$CONFIG_EXISTS" -eq 0 ]; then
@@ -106,6 +106,16 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
 
     read -p "  DNS для прямого трафика [$DEFAULT_DNS_DIRECT]: " DNS_DIRECT
     DNS_DIRECT=${DNS_DIRECT:-$DEFAULT_DNS_DIRECT}
+
+    if [ "$DNS_DIRECT" = "local" ]; then
+        warn "Тип 'local' несовместим с TUN auto_route (петля DNS)!"
+        warn "Рекомендуется IP-адрес DNS (например 8.8.8.8 или 77.88.8.8)"
+        read -p "  Продолжить с '$DNS_DIRECT'? [y/N]: " FORCE_LOCAL
+        if [ "${FORCE_LOCAL,,}" != "y" ]; then
+            read -p "  DNS для прямого трафика [8.8.8.8]: " DNS_DIRECT
+            DNS_DIRECT=${DNS_DIRECT:-8.8.8.8}
+        fi
+    fi
 
     read -p "  DNS для VPN-трафика (DoH) [$DEFAULT_DNS_VPN]: " DNS_VPN
     DNS_VPN=${DNS_VPN:-$DEFAULT_DNS_VPN}

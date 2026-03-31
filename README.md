@@ -329,20 +329,20 @@ sudo ./scripts/singbox-status.sh
    3. [urltest   ] proxy               → NL-Amsterdam, DE-Frankfurt
    4. [direct    ] direct
    5. [block     ] block
-   6. [dns       ] dns-out
 
 ═══ Правила маршрутизации ═══
-   1. protocol: dns                → dns-out
-   2. inbound: proxy-in            → proxy
-   3. domain_suffix: openai.com    → proxy          [manual]
-   4. rule-set: geosite-youtube    → proxy
-   5. rule-set: geosite-google     → proxy
-   6. rule-set: geoip-ru           → direct
-   7. * (final)                    → direct
+   1. action: sniff
+   2. protocol: dns           action: hijack-dns
+   3. inbound: proxy-in            → proxy
+   4. domain_suffix: openai.com    → proxy          [manual]
+   5. rule-set: geosite-youtube    → proxy
+   6. rule-set: geosite-google     → proxy
+   7. rule-set: geoip-ru           → direct
+   8. * (final)                    → direct
 
 ═══ DNS ═══
-  dns-direct:  local                 (detour: direct)
-  dns-vpn:     1.1.1.1/dns-query     (detour: proxy)
+  dns-direct:    udp://8.8.8.8  (detour: -)
+  dns-vpn:       https://1.1.1.1  (detour: proxy)
     Правила DNS:
     rule-set: geosite-youtube → dns-vpn
     rule-set: geosite-google  → dns-vpn
