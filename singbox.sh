@@ -1,0 +1,881 @@
+#!/bin/bash
+# ============================================================
+#  sing-box — Единый скрипт управления
+# ============================================================
+#  Объединяет: статус, добавление серверов/групп/правил,
+#  удаление, применение конфигурации.
+# ============================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/scripts/singbox-common.sh"
+
+# ── Визуальные константы ────────────────────────────────────
+DIM='\033[2m'
+W=48
+
+draw_box() {
+    local title="$1" color="${2:-$CYAN}"
+    local pad=$(( (W - ${#title} - 2) / 2 ))
+    local lpad=$(printf '%*s' "$pad" '' | tr ' ' '═')
+    local rpad=$(printf '%*s' $(( W - ${#title} - 2 - pad )) '' | tr ' ' '═')
+    echo ""
+    echo -e "${color}${BOLD}╔$(printf '%*s' $W '' | tr ' ' '═')╗${NC}"
+    echo -e "${color}${BOLD}║${lpad} ${title} ${rpad}║${NC}"
+    echo -e "${color}${BOLD}╚$(printf '%*s' $W '' | tr ' ' '═')╝${NC}"
+}
+
+draw_section() {
+    echo ""
+    echo -e "  ${BOLD}$1${NC}"
+    echo -e "  ${DIM}$(printf '%.0s─' $(seq 1 44))${NC}"
+}
+
+separator() {
+    echo -e "  ${DIM}$(printf '%.0s·' $(seq 1 44))${NC}"
+}
+
+urldecode() {
+    printf '%b' "${1//%/\\x}"
+}
+
+# ════════════════════════════════════════════════════════════
+#  СТАТУС
+# ════════════════════════════════════════════════════════════
+cmd_status() {
+    draw_box "sing-box Status"
+
+    local version
+    version=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
+
+    local svc_status
+    if systemctl is-active --quiet sing-box 2>/dev/null; then
+        svc_status="${GREEN}active${NC}"
+    else
+        svc_status="${RED}inactive${NC}"
+    fi
+
+    local tun_iface tun_addr proxy_port tun_status
+    tun_iface=$(jq -r '.inbounds[] | select(.type == "tun") | .interface_name // "tun0"' "$SINGBOX_CONFIG" 2>/dev/null)
+    tun_addr=$(jq -r '.inbounds[] | select(.type == "tun") | .address[0] // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
+    proxy_port=$(jq -r '.inbounds[] | select(.type == "mixed") | .listen_port // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
+
+    if ip link show "$tun_iface" &>/dev/null; then
+        tun_status="${GREEN}UP${NC}"
+    else
+        tun_status="${RED}DOWN${NC}"
+    fi
+
+    echo ""
+    printf "  %-16s %b\n" "Сервис:" "$svc_status"
+    printf "  %-16s %s\n" "Версия:" "$version"
+    printf "  %-16s %s (%s)\n" "TUN:" "$tun_iface" "$tun_addr"
+    printf "  %-16s %b\n" "TUN статус:" "$tun_status"
+    printf "  %-16s %s\n" "Proxy:" ":${proxy_port} (SOCKS5 + HTTP)"
+
+    # ── Outbound'ы ──
+    draw_section "Серверы и группы"
+
+    local i=1
+    jq -r '.outbounds[] | "\(.type)\t\(.tag)\t\(.server // "")\t\(.server_port // "")\t\(.outbounds // [] | join(", "))"' "$SINGBOX_CONFIG" 2>/dev/null | \
+    while IFS=$'\t' read -r type tag server port members; do
+        case "$type" in
+            vless)
+                printf "  ${CYAN}%2d${NC}  %-10s %-22s %s:%s\n" "$i" "[$type]" "$tag" "$server" "$port"
+                ;;
+            urltest|selector)
+                printf "  ${YELLOW}%2d${NC}  %-10s %-22s %s\n" "$i" "[$type]" "$tag" "$members"
+                ;;
+            direct)
+                printf "  ${GREEN}%2d${NC}  %-10s %s\n" "$i" "[$type]" "$tag"
+                ;;
+            block)
+                printf "  ${RED}%2d${NC}  %-10s %s\n" "$i" "[$type]" "$tag"
+                ;;
+            *)
+                printf "  %2d  %-10s %s\n" "$i" "[$type]" "$tag"
+                ;;
+        esac
+        ((i++))
+    done
+
+    # ── Правила маршрутизации ──
+    draw_section "Правила маршрутизации"
+
+    local rules_count
+    rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
+    i=1
+    for ((idx=0; idx<rules_count; idx++)); do
+        local rule outbound action
+        rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
+        outbound=$(echo "$rule" | jq -r '.outbound // empty')
+        action=$(echo "$rule" | jq -r '.action // empty')
+
+        if [ -n "$action" ] && [ "$action" != "route" ]; then
+            local proto
+            proto=$(echo "$rule" | jq -r '.protocol // ""')
+            if [ -n "$proto" ]; then
+                printf "  ${DIM}%2d${NC}  protocol: %-12s action: %s\n" "$i" "$proto" "$action"
+            else
+                printf "  ${DIM}%2d${NC}  action: %s\n" "$i" "$action"
+            fi
+        elif echo "$rule" | jq -e '.inbound' >/dev/null 2>&1; then
+            local inb
+            inb=$(echo "$rule" | jq -r '.inbound | join(", ")')
+            printf "  %2d  inbound: %-18s → %s\n" "$i" "$inb" "$outbound"
+        elif echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+            local rs
+            rs=$(echo "$rule" | jq -r '.rule_set | join(", ")')
+            printf "  %2d  rule-set: %-17s → %s\n" "$i" "$rs" "$outbound"
+        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+            local dom
+            dom=$(echo "$rule" | jq -r '.domain | join(", ")')
+            printf "  %2d  domain: %-18s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$dom" "$outbound"
+        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+            local ds
+            ds=$(echo "$rule" | jq -r '.domain_suffix | join(", ")')
+            printf "  %2d  domain_suffix: %-11s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$ds" "$outbound"
+        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+            local dk
+            dk=$(echo "$rule" | jq -r '.domain_keyword | join(", ")')
+            printf "  %2d  domain_keyword: %-10s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$dk" "$outbound"
+        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+            local ic
+            ic=$(echo "$rule" | jq -r '.ip_cidr | join(", ")')
+            printf "  %2d  ip_cidr: %-17s → %s  ${YELLOW}[manual]${NC}\n" "$i" "$ic" "$outbound"
+        else
+            printf "  %2d  (другое)                   → %s\n" "$i" "$outbound"
+        fi
+        ((i++))
+    done
+
+    local final
+    final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
+    printf "  ${DIM}%2d  * (final)                   → %s${NC}\n" "$i" "$final"
+
+    # ── DNS ──
+    draw_section "DNS"
+
+    jq -r '.dns.servers[] | @json' "$SINGBOX_CONFIG" 2>/dev/null | \
+    while read -r entry; do
+        local d_tag d_type d_server d_detour
+        d_tag=$(echo "$entry" | jq -r '.tag // "?"')
+        d_type=$(echo "$entry" | jq -r '.type // "?"')
+        d_server=$(echo "$entry" | jq -r '.server // ""')
+        d_detour=$(echo "$entry" | jq -r '.detour // "-"')
+        if [ -n "$d_server" ]; then
+            printf "  %-14s %s://%s  (detour: %s)\n" "$d_tag:" "$d_type" "$d_server" "$d_detour"
+        else
+            printf "  %-14s %s  (detour: %s)\n" "$d_tag:" "$d_type" "$d_detour"
+        fi
+    done
+
+    local dns_rules_count
+    dns_rules_count=$(jq '.dns.rules | length' "$SINGBOX_CONFIG" 2>/dev/null)
+    if [ "$dns_rules_count" -gt 0 ]; then
+        separator
+        for ((idx=0; idx<dns_rules_count; idx++)); do
+            local dr server
+            dr=$(jq -c ".dns.rules[$idx]" "$SINGBOX_CONFIG")
+            server=$(echo "$dr" | jq -r '.server')
+            if echo "$dr" | jq -e '.rule_set' >/dev/null 2>&1; then
+                local rs
+                rs=$(echo "$dr" | jq -r '.rule_set | join(", ")')
+                printf "  rule-set: %-20s → %s\n" "$rs" "$server"
+            elif echo "$dr" | jq -e '.domain' >/dev/null 2>&1; then
+                local d
+                d=$(echo "$dr" | jq -r '.domain | join(", ")')
+                printf "  domain: %-22s → %s\n" "$d" "$server"
+            elif echo "$dr" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+                local ds
+                ds=$(echo "$dr" | jq -r '.domain_suffix | join(", ")')
+                printf "  domain_suffix: %-15s → %s\n" "$ds" "$server"
+            else
+                printf "  (другое)                       → %s\n" "$server"
+            fi
+        done
+    fi
+
+    local dns_final
+    dns_final=$(jq -r '.dns.final // "dns-direct"' "$SINGBOX_CONFIG")
+    printf "  ${DIM}* (final) → %s${NC}\n" "$dns_final"
+
+    local rs_count
+    rs_count=$(jq '.route.rule_set | length' "$SINGBOX_CONFIG" 2>/dev/null)
+    if [ "$rs_count" -gt 0 ]; then
+        draw_section "Rule-sets"
+        jq -r '.route.rule_set[] | "  \(.tag) (\(.type))"' "$SINGBOX_CONFIG"
+    fi
+
+    echo ""
+}
+
+# ════════════════════════════════════════════════════════════
+#  ДОБАВИТЬ VLESS
+# ════════════════════════════════════════════════════════════
+cmd_add_vless() {
+    draw_box "Добавить VLESS-сервер"
+
+    local VLESS_TAG="" VLESS_SERVER="" VLESS_PORT=""
+    local VLESS_UUID="" VLESS_FLOW="" VLESS_SECURITY="none"
+    local VLESS_SNI="" VLESS_FINGERPRINT="chrome"
+    local VLESS_REALITY_PUBKEY="" VLESS_REALITY_SHORTID=""
+    local VLESS_TRANSPORT="tcp" VLESS_WS_PATH="" VLESS_WS_HOST=""
+    local VLESS_GRPC_SERVICE="" VLESS_ALPN=""
+
+    echo ""
+    echo "  Способ добавления:"
+    echo "    1) Вставить VLESS URI (vless://...)"
+    echo "    2) Ввести параметры вручную"
+    read -p "  Выбор [1]: " input_method
+    input_method=${input_method:-1}
+
+    case "$input_method" in
+        1)
+            echo ""
+            read -p "  VLESS URI: " vless_uri
+            if [[ ! "$vless_uri" == vless://* ]]; then
+                err "URI должен начинаться с vless://"; return
+            fi
+            # Парсинг URI
+            local uri="${vless_uri#vless://}"
+            if [[ "$uri" == *"#"* ]]; then
+                VLESS_TAG=$(urldecode "${uri##*#}")
+                uri="${uri%%#*}"
+            fi
+            VLESS_UUID="${uri%%@*}"; uri="${uri#*@}"
+            local hostport params=""
+            if [[ "$uri" == *"?"* ]]; then
+                hostport="${uri%%\?*}"; params="${uri#*\?}"
+            else hostport="$uri"; fi
+            if [[ "$hostport" == "["* ]]; then
+                VLESS_SERVER="${hostport%%]*}"; VLESS_SERVER="${VLESS_SERVER#[}"
+                VLESS_PORT="${hostport##*]:}"
+            else
+                VLESS_SERVER="${hostport%%:*}"; VLESS_PORT="${hostport##*:}"
+            fi
+            if [ -n "$params" ]; then
+                IFS='&' read -ra PAIRS <<< "$params"
+                for pair in "${PAIRS[@]}"; do
+                    local key="${pair%%=*}" value
+                    value=$(urldecode "${pair#*=}")
+                    case "$key" in
+                        type)        VLESS_TRANSPORT="$value" ;;
+                        security)    VLESS_SECURITY="$value" ;;
+                        sni)         VLESS_SNI="$value" ;;
+                        fp)          VLESS_FINGERPRINT="$value" ;;
+                        flow)        VLESS_FLOW="$value" ;;
+                        pbk)         VLESS_REALITY_PUBKEY="$value" ;;
+                        sid)         VLESS_REALITY_SHORTID="$value" ;;
+                        path)        VLESS_WS_PATH="$value" ;;
+                        host)        VLESS_WS_HOST="$value" ;;
+                        serviceName) VLESS_GRPC_SERVICE="$value" ;;
+                        alpn)        VLESS_ALPN="$value" ;;
+                    esac
+                done
+            fi
+            [ -z "$VLESS_TAG" ] && read -p "  Тег (имя): " VLESS_TAG
+            ;;
+        2)
+            echo ""
+            read -p "  Тег (имя): " VLESS_TAG
+            [ -z "$VLESS_TAG" ] && { err "Тег не может быть пустым"; return; }
+            read -p "  Сервер: " VLESS_SERVER
+            [ -z "$VLESS_SERVER" ] && { err "Адрес не может быть пустым"; return; }
+            read -p "  Порт [443]: " VLESS_PORT; VLESS_PORT=${VLESS_PORT:-443}
+            read -p "  UUID: " VLESS_UUID
+            [ -z "$VLESS_UUID" ] && { err "UUID не может быть пустым"; return; }
+            read -p "  Flow []: " VLESS_FLOW
+            echo "  Безопасность:  1) none  2) tls  3) reality"
+            read -p "  Выбор [1]: " sec; sec=${sec:-1}
+            case "$sec" in 1) VLESS_SECURITY="none";; 2) VLESS_SECURITY="tls";; 3) VLESS_SECURITY="reality";; *) err "Неверно"; return;; esac
+            if [ "$VLESS_SECURITY" != "none" ]; then
+                read -p "  SNI: " VLESS_SNI
+                read -p "  Fingerprint [chrome]: " VLESS_FINGERPRINT; VLESS_FINGERPRINT=${VLESS_FINGERPRINT:-chrome}
+                read -p "  ALPN (через запятую) []: " VLESS_ALPN
+            fi
+            if [ "$VLESS_SECURITY" = "reality" ]; then
+                read -p "  Reality public key: " VLESS_REALITY_PUBKEY
+                [ -z "$VLESS_REALITY_PUBKEY" ] && { err "Public key обязателен"; return; }
+                read -p "  Reality short ID []: " VLESS_REALITY_SHORTID
+            fi
+            echo "  Транспорт:  1) tcp  2) ws  3) grpc"
+            read -p "  Выбор [1]: " tr; tr=${tr:-1}
+            case "$tr" in
+                1) VLESS_TRANSPORT="tcp" ;;
+                2) VLESS_TRANSPORT="ws"; read -p "  WS path [/]: " VLESS_WS_PATH; VLESS_WS_PATH=${VLESS_WS_PATH:-/}; read -p "  WS host []: " VLESS_WS_HOST ;;
+                3) VLESS_TRANSPORT="grpc"; read -p "  gRPC service [grpc]: " VLESS_GRPC_SERVICE; VLESS_GRPC_SERVICE=${VLESS_GRPC_SERVICE:-grpc} ;;
+                *) err "Неверно"; return ;;
+            esac
+            ;;
+        *) err "Неверный выбор"; return ;;
+    esac
+
+    if [ -z "$VLESS_TAG" ] || [ -z "$VLESS_SERVER" ] || [ -z "$VLESS_PORT" ] || [ -z "$VLESS_UUID" ]; then
+        err "Не все обязательные поля заполнены"; return
+    fi
+    if jq -e --arg tag "$VLESS_TAG" '.outbounds[] | select(.tag == $tag)' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
+        err "Outbound '$VLESS_TAG' уже существует"; return
+    fi
+
+    draw_section "Подтверждение"
+    printf "  %-14s %s\n" "Тег:" "$VLESS_TAG"
+    printf "  %-14s %s:%s\n" "Сервер:" "$VLESS_SERVER" "$VLESS_PORT"
+    printf "  %-14s %s...%s\n" "UUID:" "${VLESS_UUID:0:8}" "${VLESS_UUID: -4}"
+    [ -n "$VLESS_FLOW" ]       && printf "  %-14s %s\n" "Flow:" "$VLESS_FLOW"
+    printf "  %-14s %s\n" "Security:" "$VLESS_SECURITY"
+    [ -n "$VLESS_SNI" ]        && printf "  %-14s %s\n" "SNI:" "$VLESS_SNI"
+    [ "$VLESS_SECURITY" = "reality" ] && printf "  %-14s %s...\n" "Reality PK:" "${VLESS_REALITY_PUBKEY:0:16}"
+    printf "  %-14s %s\n" "Транспорт:" "$VLESS_TRANSPORT"
+    echo ""
+
+    read -p "  Добавить? [Y/n]: " confirm; confirm=${confirm:-Y}
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
+
+    backup_config
+
+    local OUTBOUND
+    OUTBOUND=$(jq -n --arg tag "$VLESS_TAG" --arg server "$VLESS_SERVER" \
+        --argjson port "$VLESS_PORT" --arg uuid "$VLESS_UUID" \
+        '{type: "vless", tag: $tag, server: $server, server_port: $port, uuid: $uuid}')
+    [ -n "$VLESS_FLOW" ] && OUTBOUND=$(echo "$OUTBOUND" | jq --arg f "$VLESS_FLOW" '. + {flow: $f}')
+
+    if [ "$VLESS_SECURITY" = "tls" ] || [ "$VLESS_SECURITY" = "reality" ]; then
+        local TLS_OBJ
+        TLS_OBJ=$(jq -n '{enabled: true}')
+        [ -n "$VLESS_SNI" ] && TLS_OBJ=$(echo "$TLS_OBJ" | jq --arg s "$VLESS_SNI" '. + {server_name: $s}')
+        [ -n "$VLESS_FINGERPRINT" ] && TLS_OBJ=$(echo "$TLS_OBJ" | jq --arg f "$VLESS_FINGERPRINT" '. + {utls: {enabled: true, fingerprint: $f}}')
+        if [ -n "$VLESS_ALPN" ]; then
+            local alpn_arr
+            alpn_arr=$(echo "$VLESS_ALPN" | tr ',' '\n' | jq -R . | jq -s .)
+            TLS_OBJ=$(echo "$TLS_OBJ" | jq --argjson a "$alpn_arr" '. + {alpn: $a}')
+        fi
+        [ "$VLESS_SECURITY" = "reality" ] && TLS_OBJ=$(echo "$TLS_OBJ" | jq \
+            --arg pk "$VLESS_REALITY_PUBKEY" --arg sid "$VLESS_REALITY_SHORTID" \
+            '. + {reality: {enabled: true, public_key: $pk, short_id: $sid}}')
+        OUTBOUND=$(echo "$OUTBOUND" | jq --argjson tls "$TLS_OBJ" '. + {tls: $tls}')
+    fi
+
+    case "$VLESS_TRANSPORT" in
+        ws)
+            local tr_obj
+            tr_obj=$(jq -n --arg p "${VLESS_WS_PATH:-/}" '{type: "ws", path: $p}')
+            [ -n "$VLESS_WS_HOST" ] && tr_obj=$(echo "$tr_obj" | jq --arg h "$VLESS_WS_HOST" '. + {headers: {Host: $h}}')
+            OUTBOUND=$(echo "$OUTBOUND" | jq --argjson t "$tr_obj" '. + {transport: $t}')
+            ;;
+        grpc)
+            OUTBOUND=$(echo "$OUTBOUND" | jq --arg sn "${VLESS_GRPC_SERVICE:-grpc}" '. + {transport: {type: "grpc", service_name: $sn}}')
+            ;;
+    esac
+
+    local NEW_CONFIG
+    NEW_CONFIG=$(jq --argjson new "$OUTBOUND" '
+        .outbounds as $ob |
+        ($ob | to_entries | map(select(.value.type == "direct" or .value.type == "block" or .value.type == "dns")) | .[0].key // ($ob | length)) as $pos |
+        .outbounds = ($ob[:$pos] + [$new] + $ob[$pos:])
+    ' "$SINGBOX_CONFIG")
+    write_config "$NEW_CONFIG"
+    ok "VLESS '$VLESS_TAG' добавлен"
+    echo ""
+    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  СОЗДАТЬ ГРУППУ
+# ════════════════════════════════════════════════════════════
+cmd_add_group() {
+    draw_box "Создать группу"
+
+    local vless_tags
+    vless_tags=$(jq -r '.outbounds[] | select(.type == "vless") | .tag' "$SINGBOX_CONFIG")
+    if [ -z "$vless_tags" ]; then
+        err "Нет VLESS-серверов. Сначала добавьте сервер."; return
+    fi
+
+    draw_section "VLESS-серверы"
+    local i=1
+    declare -a tag_arr=()
+    while IFS= read -r tag; do
+        tag_arr+=("$tag")
+        local srv
+        srv=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | "\(.server):\(.server_port)"' "$SINGBOX_CONFIG")
+        printf "  %2d  %-24s %s\n" "$i" "$tag" "$srv"
+        ((i++))
+    done <<< "$vless_tags"
+
+    echo ""
+    read -p "  Тег группы [proxy]: " group_tag; group_tag=${group_tag:-proxy}
+
+    if jq -e --arg t "$group_tag" '.outbounds[] | select(.tag == $t)' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
+        warn "Группа '$group_tag' будет пересоздана"
+    fi
+
+    echo ""
+    echo "  Тип группы:"
+    echo "    1) urltest   — автовыбор лучшего + failover"
+    echo "    2) selector  — ручной выбор"
+    read -p "  Выбор [1]: " type_ch; type_ch=${type_ch:-1}
+    local group_type
+    case "$type_ch" in 1) group_type="urltest";; 2) group_type="selector";; *) err "Неверно"; return;; esac
+
+    echo ""
+    echo "  Номера серверов через пробел или 'all':"
+    read -p "  Выбор [all]: " sel; sel=${sel:-all}
+    declare -a selected=()
+    if [ "$sel" = "all" ]; then
+        selected=("${tag_arr[@]}")
+    else
+        for num in $sel; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#tag_arr[@]}" ]; then
+                selected+=("${tag_arr[$((num-1))]}")
+            else err "Неверный номер: $num"; return; fi
+        done
+    fi
+    [ "${#selected[@]}" -eq 0 ] && { err "Не выбрано серверов"; return; }
+
+    local sel_json health_url="https://www.gstatic.com/generate_204" health_int="3m" health_tol=50
+    sel_json=$(printf '%s\n' "${selected[@]}" | jq -R . | jq -s .)
+
+    if [ "$group_type" = "urltest" ]; then
+        echo ""
+        echo -e "  ${BOLD}Health-check:${NC}"
+        read -p "  URL [${health_url}]: " inp; health_url=${inp:-$health_url}
+        read -p "  Интервал [${health_int}]: " inp; health_int=${inp:-$health_int}
+        read -p "  Tolerance, мс [${health_tol}]: " inp; health_tol=${inp:-$health_tol}
+    fi
+
+    echo ""
+    read -p "  Proxy-in → '$group_tag'? [Y/n]: " use_proxy; use_proxy=${use_proxy:-Y}
+    read -p "  VPN DNS detour → '$group_tag'? [Y/n]: " use_dns; use_dns=${use_dns:-Y}
+
+    draw_section "Подтверждение"
+    printf "  %-16s %s\n" "Тег:" "$group_tag"
+    printf "  %-16s %s\n" "Тип:" "$group_type"
+    printf "  %-16s %s\n" "Серверы:" "${selected[*]}"
+    echo ""
+
+    read -p "  Создать? [Y/n]: " confirm; confirm=${confirm:-Y}
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
+
+    backup_config
+
+    local group_obj config
+    if [ "$group_type" = "urltest" ]; then
+        group_obj=$(jq -n --arg tag "$group_tag" --argjson ob "$sel_json" \
+            --arg url "$health_url" --arg int "$health_int" --argjson tol "$health_tol" \
+            '{type:"urltest",tag:$tag,outbounds:$ob,url:$url,interval:$int,tolerance:$tol}')
+    else
+        group_obj=$(jq -n --arg tag "$group_tag" --argjson ob "$sel_json" \
+            '{type:"selector",tag:$tag,outbounds:$ob}')
+    fi
+
+    config=$(cat "$SINGBOX_CONFIG")
+    config=$(echo "$config" | jq --arg tag "$group_tag" '.outbounds |= map(select(.tag != $tag))')
+    config=$(echo "$config" | jq --argjson new "$group_obj" '
+        .outbounds as $ob |
+        ($ob | to_entries | map(select(.value.type == "direct" or .value.type == "block" or .value.type == "dns")) | .[0].key // ($ob | length)) as $pos |
+        .outbounds = ($ob[:$pos] + [$new] + $ob[$pos:])
+    ')
+
+    if [[ "$use_proxy" =~ ^[Yy]$ ]]; then
+        config=$(echo "$config" | jq '.route.rules |= map(select(.inbound != ["proxy-in"]))')
+        config=$(echo "$config" | jq --arg tag "$group_tag" '
+            .route.rules as $r |
+            ($r | to_entries | map(select(.value.action != null)) | .[-1].key // -1) as $pos |
+            .route.rules = ($r[:$pos+1] + [{inbound:["proxy-in"],outbound:$tag}] + $r[$pos+1:])
+        ')
+        ok "Proxy-in → $group_tag"
+    fi
+
+    if [[ "$use_dns" =~ ^[Yy]$ ]]; then
+        config=$(echo "$config" | jq --arg tag "$group_tag" '
+            .dns.servers |= map(if .tag == "dns-vpn" then .detour = $tag else . end)
+        ')
+        ok "DNS VPN detour → $group_tag"
+    fi
+
+    write_config "$config"
+    ok "Группа '$group_tag' создана"
+    echo ""
+    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  ДОБАВИТЬ ПРАВИЛО
+# ════════════════════════════════════════════════════════════
+cmd_add_rule() {
+    draw_box "Добавить правило"
+    echo ""
+    echo "  Тип правила:"
+    echo ""
+    echo "    ${BOLD}Ручные (высший приоритет):${NC}"
+    echo "    1) domain          точное совпадение"
+    echo "    2) domain_suffix   суффикс (*.example.com)"
+    echo "    3) domain_keyword  ключевое слово"
+    echo "    4) ip_cidr         подсеть IP"
+    echo ""
+    echo "    ${BOLD}Rule-set (community списки):${NC}"
+    echo "    5) geosite         категория (youtube, google...)"
+    echo "    6) geoip           страна по IP (ru, us...)"
+    echo ""
+    read -p "  Выбор [5]: " rule_ch; rule_ch=${rule_ch:-5}
+
+    local rule_type="" is_ruleset=0
+    case "$rule_ch" in
+        1) rule_type="domain";; 2) rule_type="domain_suffix";;
+        3) rule_type="domain_keyword";; 4) rule_type="ip_cidr";;
+        5) rule_type="geosite"; is_ruleset=1;; 6) rule_type="geoip"; is_ruleset=1;;
+        *) err "Неверный выбор"; return;;
+    esac
+
+    local rule_value="" ruleset_tag="" ruleset_url=""
+
+    if [ "$rule_type" = "geosite" ]; then
+        echo ""
+        echo "  Категории geosite:"
+        echo "    1) youtube    5) twitter    9) openai"
+        echo "    2) google     6) telegram  10) другое"
+        echo "    3) facebook   7) netflix"
+        echo "    4) instagram  8) tiktok"
+        read -p "  Выбор [10]: " gc; gc=${gc:-10}
+        case "$gc" in
+            1) rule_value="youtube";; 2) rule_value="google";; 3) rule_value="facebook";;
+            4) rule_value="instagram";; 5) rule_value="twitter";; 6) rule_value="telegram";;
+            7) rule_value="netflix";; 8) rule_value="tiktok";; 9) rule_value="openai";;
+            10) read -p "  Имя категории: " rule_value;;
+            *) err "Неверно"; return;;
+        esac
+        ruleset_tag="geosite-${rule_value}"
+        ruleset_url="https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${rule_value}.srs"
+    elif [ "$rule_type" = "geoip" ]; then
+        echo ""
+        echo "  Страны geoip:"
+        echo "    1) ru   2) us   3) cn   4) de   5) другое"
+        read -p "  Выбор [5]: " gc; gc=${gc:-5}
+        case "$gc" in
+            1) rule_value="ru";; 2) rule_value="us";; 3) rule_value="cn";; 4) rule_value="de";;
+            5) read -p "  Код страны (2 буквы): " rule_value; rule_value=$(echo "$rule_value" | tr '[:upper:]' '[:lower:]');;
+            *) err "Неверно"; return;;
+        esac
+        ruleset_tag="geoip-${rule_value}"
+        ruleset_url="https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${rule_value}.srs"
+    else
+        echo ""
+        case "$rule_type" in
+            domain)         read -p "  Домен: " rule_value;;
+            domain_suffix)  read -p "  Суффикс: " rule_value;;
+            domain_keyword) read -p "  Ключевое слово: " rule_value;;
+            ip_cidr)        read -p "  IP/CIDR: " rule_value;;
+        esac
+    fi
+    [ -z "$rule_value" ] && { err "Значение пусто"; return; }
+
+    # Выбор outbound
+    echo ""
+    echo "  Доступные outbound'ы:"
+    local outbounds i=1
+    outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
+    declare -a ob_arr=()
+    while IFS= read -r ob; do
+        ob_arr+=("$ob")
+        local ob_type
+        ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+        printf "    %d) [%-10s] %s\n" "$i" "$ob_type" "$ob"
+        ((i++))
+    done <<< "$outbounds"
+    echo ""
+    read -p "  Outbound (номер): " ob_num
+    if ! [[ "$ob_num" =~ ^[0-9]+$ ]] || [ "$ob_num" -lt 1 ] || [ "$ob_num" -gt "${#ob_arr[@]}" ]; then
+        err "Неверный номер"; return
+    fi
+    local target="${ob_arr[$((ob_num-1))]}"
+
+    local dns_mirror=0
+    local target_type
+    target_type=$(jq -r --arg t "$target" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+    [ "$target_type" != "direct" ] && [ "$target_type" != "block" ] && dns_mirror=1
+
+    draw_section "Подтверждение"
+    if [ "$is_ruleset" -eq 1 ]; then
+        printf "  %-14s rule-set (%s)\n" "Тип:" "$rule_type"
+        printf "  %-14s %s\n" "Категория:" "$rule_value"
+    else
+        printf "  %-14s manual (%s)\n" "Тип:" "$rule_type"
+        printf "  %-14s %s\n" "Значение:" "$rule_value"
+    fi
+    printf "  %-14s %s\n" "Outbound:" "$target"
+    [ "$dns_mirror" -eq 1 ] && printf "  %-14s → dns-vpn (авто)\n" "DNS:"
+    echo ""
+
+    read -p "  Добавить? [Y/n]: " confirm; confirm=${confirm:-Y}
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
+
+    backup_config
+    local config
+    config=$(cat "$SINGBOX_CONFIG")
+
+    if [ "$is_ruleset" -eq 1 ]; then
+        if ! echo "$config" | jq -e --arg tag "$ruleset_tag" '.route.rule_set[]? | select(.tag == $tag)' >/dev/null 2>&1; then
+            config=$(echo "$config" | jq --arg tag "$ruleset_tag" --arg url "$ruleset_url" '
+                .route.rule_set += [{type:"remote",tag:$tag,format:"binary",url:$url,download_detour:"direct",update_interval:"72h"}]
+            ')
+            ok "Rule-set '$ruleset_tag' добавлен"
+        fi
+        if ! echo "$config" | jq -e --arg rs "$ruleset_tag" --arg ob "$target" \
+            '.route.rules[] | select(.rule_set? == [$rs] and .outbound == $ob)' >/dev/null 2>&1; then
+            config=$(echo "$config" | jq --arg rs "$ruleset_tag" --arg ob "$target" \
+                '.route.rules += [{rule_set:[$rs],outbound:$ob}]')
+        fi
+        if [ "$dns_mirror" -eq 1 ]; then
+            if ! echo "$config" | jq -e --arg rs "$ruleset_tag" '.dns.rules[]? | select(.rule_set? == [$rs])' >/dev/null 2>&1; then
+                config=$(echo "$config" | jq --arg rs "$ruleset_tag" '.dns.rules += [{rule_set:[$rs],server:"dns-vpn"}]')
+                ok "DNS-правило для '$ruleset_tag' добавлено"
+            fi
+        fi
+    else
+        local new_rule
+        new_rule=$(jq -n --arg type "$rule_type" --arg val "$rule_value" --arg ob "$target" \
+            '{($type):[$val],outbound:$ob}')
+        config=$(echo "$config" | jq --argjson new "$new_rule" '
+            .route.rules as $r |
+            ($r | to_entries | map(select(.value.rule_set != null)) | .[0].key // ($r | length)) as $pos |
+            .route.rules = ($r[:$pos] + [$new] + $r[$pos:])
+        ')
+        if [ "$dns_mirror" -eq 1 ]; then
+            local dns_rule
+            dns_rule=$(jq -n --arg type "$rule_type" --arg val "$rule_value" '{($type):[$val],server:"dns-vpn"}')
+            config=$(echo "$config" | jq --argjson new "$dns_rule" '.dns.rules += [$new]')
+            ok "DNS-правило добавлено"
+        fi
+    fi
+
+    write_config "$config"
+    ok "Правило: $rule_type:$rule_value → $target"
+    echo ""
+    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  ПРИМЕНИТЬ
+# ════════════════════════════════════════════════════════════
+cmd_apply() {
+    draw_box "Применить конфигурацию" "$GREEN"
+    echo ""
+    apply_config
+    sleep 1
+    if ip link show tun0 &>/dev/null; then
+        ok "tun0 — UP"
+    else
+        warn "tun0 — не найден"
+    fi
+    echo ""
+}
+
+offer_apply_inline() {
+    read -p "  Применить сейчас? [Y/n]: " a; a=${a:-Y}
+    if [[ "$a" =~ ^[Yy]$ ]]; then
+        apply_config
+    else
+        info "Для применения: выберите пункт 5 в меню"
+    fi
+}
+
+# ════════════════════════════════════════════════════════════
+#  УДАЛИТЬ СЕРВЕР / ГРУППУ
+# ════════════════════════════════════════════════════════════
+cmd_delete_outbound() {
+    draw_box "Удалить сервер / группу" "$RED"
+
+    local custom_obs
+    custom_obs=$(jq -r '.outbounds[] | select(.type != "direct" and .type != "block" and .type != "dns") | .tag' "$SINGBOX_CONFIG")
+    if [ -z "$custom_obs" ]; then
+        warn "Нет серверов/групп для удаления"; return
+    fi
+
+    echo ""
+    local i=1
+    declare -a del_arr=()
+    while IFS= read -r tag; do
+        del_arr+=("$tag")
+        local ob_type
+        ob_type=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+        printf "  %2d  [%-10s] %s\n" "$i" "$ob_type" "$tag"
+        ((i++))
+    done <<< "$custom_obs"
+    echo ""
+    read -p "  Номер для удаления (0 — отмена): " num
+    [ "$num" = "0" ] && return
+    if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#del_arr[@]}" ]; then
+        err "Неверный номер"; return
+    fi
+
+    local del_tag="${del_arr[$((num-1))]}"
+    echo ""
+    read -p "  Удалить '$del_tag'? [y/N]: " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
+
+    backup_config
+    local config
+    config=$(cat "$SINGBOX_CONFIG")
+    config=$(echo "$config" | jq --arg tag "$del_tag" '.outbounds |= map(select(.tag != $tag))')
+    config=$(echo "$config" | jq --arg tag "$del_tag" '
+        .outbounds |= map(if .outbounds then .outbounds |= map(select(. != $tag)) else . end)
+    ')
+    config=$(echo "$config" | jq --arg tag "$del_tag" '
+        .route.rules |= map(select(.outbound != $tag))
+    ')
+
+    write_config "$config"
+    ok "'$del_tag' удалён"
+    echo ""
+    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  УДАЛИТЬ ПРАВИЛО
+# ════════════════════════════════════════════════════════════
+cmd_delete_rule() {
+    draw_box "Удалить правило" "$RED"
+
+    local rules_count user_rules=0
+    rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
+
+    echo ""
+    declare -a rule_indices=()
+    for ((idx=0; idx<rules_count; idx++)); do
+        local rule action outbound
+        rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
+        action=$(echo "$rule" | jq -r '.action // empty')
+        outbound=$(echo "$rule" | jq -r '.outbound // empty')
+
+        [ -n "$action" ] && [ "$action" != "route" ] && continue
+        echo "$rule" | jq -e '.inbound' >/dev/null 2>&1 && continue
+
+        ((user_rules++))
+        rule_indices+=("$idx")
+        local label=""
+        if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+            label="rule-set: $(echo "$rule" | jq -r '.rule_set | join(", ")')"
+        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+            label="domain: $(echo "$rule" | jq -r '.domain | join(", ")')"
+        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+            label="domain_suffix: $(echo "$rule" | jq -r '.domain_suffix | join(", ")')"
+        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+            label="domain_keyword: $(echo "$rule" | jq -r '.domain_keyword | join(", ")')"
+        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+            label="ip_cidr: $(echo "$rule" | jq -r '.ip_cidr | join(", ")')"
+        else
+            label="(другое)"
+        fi
+        printf "  %2d  %-36s → %s\n" "$user_rules" "$label" "$outbound"
+    done
+
+    if [ "$user_rules" -eq 0 ]; then
+        warn "Нет пользовательских правил"; return
+    fi
+
+    echo ""
+    read -p "  Номер для удаления (0 — отмена): " num
+    [ "$num" = "0" ] && return
+    if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$user_rules" ]; then
+        err "Неверный номер"; return
+    fi
+
+    local del_idx="${rule_indices[$((num-1))]}"
+    local del_rule
+    del_rule=$(jq -c ".route.rules[$del_idx]" "$SINGBOX_CONFIG")
+    echo ""
+    read -p "  Удалить это правило? [y/N]: " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
+
+    backup_config
+    local config
+    config=$(jq --argjson idx "$del_idx" '.route.rules |= .[:$idx] + .[$idx+1:]' "$SINGBOX_CONFIG")
+
+    # Удалить зеркальное DNS-правило
+    if echo "$del_rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+        local rs
+        rs=$(echo "$del_rule" | jq -r '.rule_set[0]')
+        config=$(echo "$config" | jq --arg rs "$rs" '.dns.rules |= map(select(.rule_set != [$rs]))')
+    elif echo "$del_rule" | jq -e '.domain' >/dev/null 2>&1; then
+        local d
+        d=$(echo "$del_rule" | jq -c '.domain')
+        config=$(echo "$config" | jq --argjson d "$d" '.dns.rules |= map(select(.domain != $d))')
+    elif echo "$del_rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+        local ds
+        ds=$(echo "$del_rule" | jq -c '.domain_suffix')
+        config=$(echo "$config" | jq --argjson ds "$ds" '.dns.rules |= map(select(.domain_suffix != $ds))')
+    fi
+
+    write_config "$config"
+    ok "Правило удалено"
+    echo ""
+    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  ГЛАВНОЕ МЕНЮ
+# ════════════════════════════════════════════════════════════
+main_menu() {
+    check_root
+    check_singbox
+    check_jq
+
+    while true; do
+        echo ""
+        echo -e "${CYAN}${BOLD}  sing-box · Управление${NC}"
+        echo -e "  ${DIM}$(printf '%.0s─' $(seq 1 44))${NC}"
+
+        # Компактная строка статуса
+        local svc_label
+        if systemctl is-active --quiet sing-box 2>/dev/null; then
+            svc_label="${GREEN}●${NC} active"
+        else
+            svc_label="${RED}●${NC} inactive"
+        fi
+        local ver
+        ver=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
+        local tun_label
+        if ip link show tun0 &>/dev/null; then
+            tun_label="${GREEN}UP${NC}"
+        else
+            tun_label="${RED}DOWN${NC}"
+        fi
+        echo -e "  ${svc_label}  │  v${ver}  │  TUN: ${tun_label}"
+        echo -e "  ${DIM}$(printf '%.0s─' $(seq 1 44))${NC}"
+
+        echo ""
+        echo "    1)  Статус             показать конфигурацию"
+        echo "    2)  Добавить сервер    VLESS-подключение"
+        echo "    3)  Создать группу     urltest / selector"
+        echo "    4)  Добавить правило   маршрутизация трафика"
+        echo "    5)  Применить          проверить и перезапустить"
+        echo ""
+        echo "    6)  Удалить сервер     убрать outbound"
+        echo "    7)  Удалить правило    убрать правило"
+        echo ""
+        echo "    0)  Выход"
+        echo ""
+        read -p "  > " choice
+
+        case "$choice" in
+            1) cmd_status ;;
+            2) cmd_add_vless ;;
+            3) cmd_add_group ;;
+            4) cmd_add_rule ;;
+            5) cmd_apply ;;
+            6) cmd_delete_outbound ;;
+            7) cmd_delete_rule ;;
+            0|q|"") echo ""; break ;;
+            *) warn "Неверный выбор" ;;
+        esac
+    done
+}
+
+# Запуск с аргументом или интерактивно
+case "${1:-}" in
+    status)  check_root; check_singbox; check_jq; cmd_status ;;
+    apply)   check_root; check_singbox; check_jq; cmd_apply ;;
+    *)       main_menu ;;
+esac

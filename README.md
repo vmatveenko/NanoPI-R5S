@@ -30,11 +30,7 @@
 |--------|----------|
 | `scripts/01-router-setup.sh` | Настройка роутера: netplan, nftables, NAT, DHCP |
 | `scripts/02-singbox-install.sh` | Установка sing-box: TUN, proxy, split DNS |
-| `scripts/singbox-add-vless.sh` | Добавить VLESS-подключение (URI или вручную) |
-| `scripts/singbox-add-group.sh` | Создать группу outbound'ов (urltest / selector) |
-| `scripts/singbox-add-rule.sh` | Добавить правило маршрутизации (domain, geosite, geoip) |
-| `scripts/singbox-status.sh` | Показать текущую конфигурацию и статус |
-| `scripts/singbox-apply.sh` | Валидация конфига и перезапуск sing-box |
+| `singbox.sh` | Управление sing-box: серверы, группы, правила, статус |
 
 ## Быстрый старт
 
@@ -43,7 +39,7 @@
 ```bash
 git clone https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-router
 cd ~/nanopi-router
-chmod +x scripts/*.sh
+chmod +x scripts/*.sh singbox.sh
 sudo ./scripts/01-router-setup.sh
 ```
 
@@ -52,6 +48,7 @@ sudo ./scripts/01-router-setup.sh
 ```bash
 cd ~/nanopi-router
 git pull
+chmod +x scripts/*.sh singbox.sh
 sudo ./scripts/01-router-setup.sh
 ```
 
@@ -135,6 +132,43 @@ sudo ./scripts/02-singbox-install.sh
 
 ---
 
+### Управление sing-box
+
+Все операции выполняются через единый скрипт `singbox.sh` в корне проекта:
+
+```bash
+sudo ./singbox.sh
+```
+
+Откроется интерактивное меню:
+
+```
+  sing-box · Управление
+  ────────────────────────────────────────────
+  ● active  │  v1.13.5  │  TUN: UP
+  ────────────────────────────────────────────
+
+    1)  Статус             показать конфигурацию
+    2)  Добавить сервер    VLESS-подключение
+    3)  Создать группу     urltest / selector
+    4)  Добавить правило   маршрутизация трафика
+    5)  Применить          проверить и перезапустить
+
+    6)  Удалить сервер     убрать outbound
+    7)  Удалить правило    убрать правило
+
+    0)  Выход
+```
+
+Также доступен прямой вызов без меню:
+
+```bash
+sudo ./singbox.sh status    # показать статус
+sudo ./singbox.sh apply     # применить конфигурацию
+```
+
+---
+
 ### Пошаговая настройка sing-box (примеры)
 
 После установки sing-box работает, но весь трафик идёт напрямую.
@@ -142,214 +176,149 @@ sudo ./scripts/02-singbox-install.sh
 
 #### Шаг 1. Добавить VLESS-серверы
 
+Запустите `sudo ./singbox.sh` и выберите пункт **2** (Добавить сервер).
+
 **Способ A — вставить URI-ссылку** (самый быстрый):
-
-```bash
-sudo ./scripts/singbox-add-vless.sh
-```
-
-Скрипт спросит способ ввода — выберите `1` и вставьте ссылку от провайдера:
 
 ```
   Способ добавления:
-    1) Вставить VLESS URI (ссылка vless://...)
+    1) Вставить VLESS URI (vless://...)
     2) Ввести параметры вручную
   Выбор [1]: 1
 
-  Вставьте VLESS URI: vless://a1b2c3d4-5678-90ab-cdef-1234567890ab@vpn-nl.example.com:443?type=tcp&security=reality&pbk=XXXX&sid=abcd&sni=www.google.com&fp=chrome&flow=xtls-rprx-vision#NL-Amsterdam
+  VLESS URI: vless://uuid@server:443?type=tcp&security=reality&...#NL-Amsterdam
 ```
 
-Скрипт автоматически распарсит все параметры (сервер, порт, UUID, Reality ключи, SNI и т.д.) и покажет сводку для подтверждения.
+Скрипт автоматически распарсит все параметры и покажет сводку для подтверждения.
 
 **Способ B — ввод вручную** (если нет URI):
-
-```bash
-sudo ./scripts/singbox-add-vless.sh
-```
 
 ```
   Выбор [1]: 2
 
-  Тег (имя подключения): DE-Frankfurt
-  Адрес сервера: vpn-de.example.com
+  Тег (имя): DE-Frankfurt
+  Сервер: vpn-de.example.com
   Порт [443]: 443
-  UUID: a1b2c3d4-5678-90ab-cdef-1234567890ab
-  Flow (пусто / xtls-rprx-vision) []: xtls-rprx-vision
-
-  Безопасность:
-    1) none
-    2) tls
-    3) reality
+  UUID: a1b2c3d4-...
+  Flow []: xtls-rprx-vision
+  Безопасность:  1) none  2) tls  3) reality
   Выбор [1]: 3
-
-  SNI (server name): www.google.com
-  Fingerprint [chrome]: chrome
-  ALPN []:
-  Reality public key: XXXXXXXXXXXXXXXXXXXX
-  Reality short ID []: abcd1234
-
-  Транспорт:
-    1) tcp
-    2) ws (WebSocket)
-    3) grpc
-  Выбор [1]: 1
+  ...
 ```
 
-Повторите для каждого сервера. Например, добавьте два: `NL-Amsterdam` и `DE-Frankfurt`.
+Повторите для каждого сервера.
 
 #### Шаг 2. Создать группу (failover + автовыбор)
 
-```bash
-sudo ./scripts/singbox-add-group.sh
-```
+Выберите пункт **3** (Создать группу):
 
 ```
-  Доступные VLESS-подключения:
-    1) NL-Amsterdam  →  vpn-nl.example.com:443
-    2) DE-Frankfurt  →  vpn-de.example.com:443
+  VLESS-серверы
+  ──────────────────────────────────────────
+   1  NL-Amsterdam             vpn-nl.example.com:443
+   2  DE-Frankfurt             vpn-de.example.com:443
 
   Тег группы [proxy]: proxy
-
   Тип группы:
-    1) urltest  — автоматический выбор лучшего + failover
-    2) selector — ручной выбор
+    1) urltest   — автовыбор лучшего + failover
+    2) selector  — ручной выбор
   Выбор [1]: 1
-
-  Введите номера подключений через пробел (или 'all' для всех):
+  Номера серверов через пробел или 'all':
   Выбор [all]: all
-
-  Настройка health-check:
-  URL проверки [https://www.gstatic.com/generate_204]:
-  Интервал проверки [3m]:
-  Tolerance, мс [50]:
-
-  Использовать 'proxy' для proxy-inbound (SOCKS/HTTP → VPN)? [Y/n]: Y
-  Использовать 'proxy' для VPN DNS (split DNS)? [Y/n]: Y
 ```
 
 **Что это даёт:**
 - sing-box каждые 3 минуты пингует оба сервера
 - Автоматически выбирает лучший по latency
 - Если один сервер упал — мгновенно переключается на другой
-- Весь трафик через proxy-порт (SOCKS/HTTP) идёт через VPN-группу
 - DNS для VPN-доменов резолвится через DoH по VPN-туннелю
 
 #### Шаг 3. Добавить правила маршрутизации
 
-**Пример: YouTube через VPN**
-
-```bash
-sudo ./scripts/singbox-add-rule.sh
-```
+Выберите пункт **4** (Добавить правило):
 
 ```
   Тип правила:
-    --- Ручные (высший приоритет) ---
-    1) domain         — точное совпадение домена
-    2) domain_suffix  — суффикс домена (*.example.com)
-    3) domain_keyword — ключевое слово в домене
-    4) ip_cidr        — подсеть IP-адресов
-    --- Rule-set (community списки) ---
-    5) geosite        — категория сайтов (youtube, google, ...)
-    6) geoip          — страна по IP (ru, us, ...)
+
+    Ручные (высший приоритет):
+    1) domain          точное совпадение
+    2) domain_suffix   суффикс (*.example.com)
+    3) domain_keyword  ключевое слово
+    4) ip_cidr         подсеть IP
+
+    Rule-set (community списки):
+    5) geosite         категория (youtube, google...)
+    6) geoip           страна по IP (ru, us...)
+
   Выбор [5]: 5
 
-  Популярные категории geosite:
-    1) youtube      6) telegram
-    2) google       7) netflix
-    3) facebook     8) tiktok
-    4) instagram    9) openai
-    5) twitter     10) другое (ввести вручную)
+  Категории geosite:
+    1) youtube    5) twitter    9) openai
+    2) google     6) telegram  10) другое
+    3) facebook   7) netflix
+    4) instagram  8) tiktok
   Выбор [10]: 1
 
-  Доступные outbound'ы:
-    1) [vless]     NL-Amsterdam
-    2) [vless]     DE-Frankfurt
-    3) [urltest]   proxy
-    4) [direct]    direct
-    5) [block]     block
-
-  Outbound для этого правила (номер): 3
+  Outbound (номер): 3   (proxy)
 ```
 
 Скрипт автоматически:
-- Скачает rule-set `geosite-youtube` (список всех YouTube-доменов)
+- Скачает rule-set `geosite-youtube`
 - Добавит правило: `geosite-youtube → proxy`
 - Добавит DNS-правило: `geosite-youtube → dns-vpn` (split DNS)
 
-**Пример: Google через VPN**
+**Ещё примеры:**
+- Google через VPN: geosite → google → outbound: proxy
+- `*.openai.com` через VPN: domain_suffix → openai.com → outbound: proxy
+- Российские IP напрямую: geoip → ru → outbound: direct
 
-```bash
-sudo ./scripts/singbox-add-rule.sh
-# Выбрать: 5 (geosite) → 2 (google) → outbound: proxy
-```
-
-**Пример: конкретный домен через VPN (ручное правило)**
-
-```bash
-sudo ./scripts/singbox-add-rule.sh
-# Выбрать: 2 (domain_suffix) → ввести: openai.com → outbound: proxy
-```
-
-Это направит `*.openai.com` через VPN. Ручные правила имеют **приоритет выше** чем geosite/geoip.
-
-**Пример: российские IP напрямую (bypass VPN)**
-
-```bash
-sudo ./scripts/singbox-add-rule.sh
-# Выбрать: 6 (geoip) → 1 (ru) → outbound: direct
-```
+Ручные правила имеют **приоритет выше** чем geosite/geoip.
 
 #### Шаг 4. Применить конфигурацию
 
-```bash
-sudo ./scripts/singbox-apply.sh
-```
+Выберите пункт **5** (Применить) — скрипт проверит конфиг и перезапустит сервис.
 
-Скрипт проверит конфиг на ошибки (`sing-box check`) и перезапустит сервис.
-
-> Каждый скрипт `add-*` также предлагает применить изменения сразу (на вопрос «Применить сейчас?»). Если вы добавляете несколько правил подряд — отвечайте `n`, а после всех добавлений запустите `singbox-apply.sh` один раз.
+> Каждая операция добавления/удаления предлагает применить изменения сразу. Если добавляете несколько правил подряд — отвечайте `n`, а в конце примените один раз.
 
 #### Шаг 5. Проверить статус
 
-```bash
-sudo ./scripts/singbox-status.sh
-```
-
-Пример вывода:
+Выберите пункт **1** (Статус):
 
 ```
-  Сервис:      active (running)
-  Версия:      1.13.5
-  TUN:         tun0 (172.19.0.1/30)
-  Proxy:       :2080 (SOCKS5 + HTTP)
-  TUN статус:  UP
+  Сервис:          active
+  Версия:          1.13.5
+  TUN:             tun0 (172.19.0.1/30)
+  TUN статус:      UP
+  Proxy:           :2080 (SOCKS5 + HTTP)
 
-═══ Outbound'ы ═══
-   1. [vless     ] NL-Amsterdam        → vpn-nl.example.com:443
-   2. [vless     ] DE-Frankfurt        → vpn-de.example.com:443
-   3. [urltest   ] proxy               → NL-Amsterdam, DE-Frankfurt
-   4. [direct    ] direct
-   5. [block     ] block
+  Серверы и группы
+  ──────────────────────────────────────────
+   1  [vless]    NL-Amsterdam           vpn-nl.example.com:443
+   2  [vless]    DE-Frankfurt           vpn-de.example.com:443
+   3  [urltest]  proxy                  NL-Amsterdam, DE-Frankfurt
+   4  [direct]   direct
+   5  [block]    block
 
-═══ Правила маршрутизации ═══
-   1. action: sniff
-   2. protocol: dns           action: hijack-dns
-   3. inbound: proxy-in            → proxy
-   4. domain_suffix: openai.com    → proxy          [manual]
-   5. rule-set: geosite-youtube    → proxy
-   6. rule-set: geosite-google     → proxy
-   7. rule-set: geoip-ru           → direct
-   8. * (final)                    → direct
+  Правила маршрутизации
+  ──────────────────────────────────────────
+   1  action: sniff
+   2  protocol: dns          action: hijack-dns
+   3  inbound: proxy-in           → proxy
+   4  domain_suffix: openai.com   → proxy  [manual]
+   5  rule-set: geosite-youtube   → proxy
+   6  rule-set: geosite-google    → proxy
+   7  rule-set: geoip-ru          → direct
+   8  * (final)                   → direct
 
-═══ DNS ═══
+  DNS
+  ──────────────────────────────────────────
   dns-direct:    udp://8.8.8.8  (detour: -)
   dns-vpn:       https://1.1.1.1  (detour: proxy)
-    Правила DNS:
-    rule-set: geosite-youtube → dns-vpn
-    rule-set: geosite-google  → dns-vpn
-    domain_suffix: openai.com → dns-vpn
-    * (final) → dns-direct
+  ··············································
+  rule-set: geosite-youtube      → dns-vpn
+  rule-set: geosite-google       → dns-vpn
+  domain_suffix: openai.com      → dns-vpn
+  * (final) → dns-direct
 ```
 
 ---

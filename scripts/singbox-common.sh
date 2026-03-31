@@ -85,7 +85,7 @@ offer_apply() {
     if [[ "$APPLY" =~ ^[Yy]$ ]]; then
         apply_config
     else
-        info "Для применения запустите: sudo $(dirname "$0")/singbox-apply.sh"
+        info "Для применения запустите: sudo ./singbox.sh apply"
     fi
 }
 

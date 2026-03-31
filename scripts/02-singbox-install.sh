@@ -102,6 +102,15 @@ if [ -f "$SINGBOX_CONFIG" ]; then
         ok "route_exclude_address добавлен"
     fi
 
+    # Миграция: добавить stack:gvisor если отсутствует (system стек не обрабатывает TCP без iptables REDIRECT)
+    if ! jq -e '.inbounds[] | select(.type == "tun") | .stack' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
+        info "Миграция: добавление stack:gvisor в TUN..."
+        jq '.inbounds |= map(
+            if .type == "tun" then . + {stack: "gvisor"} else . end
+        )' "$SINGBOX_CONFIG" > "${SINGBOX_CONFIG}.tmp" && mv "${SINGBOX_CONFIG}.tmp" "$SINGBOX_CONFIG"
+        ok "stack:gvisor добавлен"
+    fi
+
     # Миграция: заменить dns-direct type:local на udp (петля с TUN)
     if jq -e '.dns.servers[] | select(.tag == "dns-direct" and .type == "local")' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
         info "Миграция: замена dns-direct local → udp://8.8.8.8..."
@@ -291,6 +300,7 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
                 address: [$tun_addr],
                 auto_route: true,
                 strict_route: false,
+                stack: "gvisor",
                 route_exclude_address: [$lan_net]
             },
             {
@@ -414,8 +424,11 @@ fi
 echo "  Маршрутизация: весь трафик → direct (без VPN)"
 echo ""
 echo -e "${YELLOW}  Следующие шаги:${NC}"
-echo "    1. Добавить VLESS-подключение:  sudo ./scripts/singbox-add-vless.sh"
-echo "    2. Создать группу (failover):   sudo ./scripts/singbox-add-group.sh"
-echo "    3. Добавить правила:            sudo ./scripts/singbox-add-rule.sh"
-echo "    4. Применить:                   sudo ./scripts/singbox-apply.sh"
+echo "    Запустите:  sudo ./singbox.sh"
+echo ""
+echo "    В меню доступно:"
+echo "      1) Добавить VLESS-сервер"
+echo "      2) Создать группу (failover)"
+echo "      3) Добавить правила маршрутизации"
+echo "      4) Применить конфигурацию"
 echo ""
