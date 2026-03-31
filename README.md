@@ -37,6 +37,7 @@
 ```bash
 git clone https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-router
 cd ~/nanopi-router
+chmod +x scripts/*.sh
 sudo ./scripts/01-router-setup.sh
 ```
 

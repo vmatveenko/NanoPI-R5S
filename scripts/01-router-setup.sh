@@ -83,7 +83,7 @@ fi
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║   NanoPi R5S — Router Base Setup             ║${NC}"
-echo -e "${CYAN}${BOLD}║   WAN: eth0  │  LAN: eth1 + eth2 → br0      ║${NC}"
+echo -e "${CYAN}${BOLD}║   WAN: eth0  │  LAN: eth1 + eth2 → br0       ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
