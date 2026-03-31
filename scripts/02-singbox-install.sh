@@ -219,14 +219,14 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
     if echo "$DNS_VPN" | grep -qE '^https://'; then
         DNS_VPN_HOST=$(echo "$DNS_VPN" | sed 's|https://||' | cut -d/ -f1)
         DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN_HOST" \
-            '{"tag": "dns-vpn", "type": "https", "server": $s, "address_resolver": "dns-direct", "detour": "direct"}')
+            '{"tag": "dns-vpn", "type": "https", "server": $s, "detour": "direct"}')
     elif echo "$DNS_VPN" | grep -qE '^tls://'; then
         DNS_VPN_HOST=$(echo "$DNS_VPN" | sed 's|tls://||' | cut -d/ -f1)
         DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN_HOST" \
-            '{"tag": "dns-vpn", "type": "tls", "server": $s, "address_resolver": "dns-direct", "detour": "direct"}')
+            '{"tag": "dns-vpn", "type": "tls", "server": $s, "detour": "direct"}')
     else
         DNS_VPN_OBJ=$(jq -n --arg s "$DNS_VPN" \
-            '{"tag": "dns-vpn", "type": "udp", "server": $s, "address_resolver": "dns-direct", "detour": "direct"}')
+            '{"tag": "dns-vpn", "type": "udp", "server": $s, "detour": "direct"}')
     fi
 
     # Сборка полного конфига через jq
