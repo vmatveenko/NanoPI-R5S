@@ -11,9 +11,9 @@
                     │       NanoPi R5S        │
                     │       (роутер)          │
                     │                         │
-   Локальная сеть ◄─┤  eth1 ─┐               │
+   Локальная сеть ◄─┤  eth1 ─┐                │
                     │        ├─ br0  (LAN)    │
-   Локальная сеть ◄─┤  eth2 ─┘               │
+   Локальная сеть ◄─┤  eth2 ─┘                │
                     └─────────────────────────┘
 ```
 
@@ -32,8 +32,19 @@
 
 ## Быстрый старт
 
+**Первая установка:**
+
+```bash
+git clone https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-router
+cd ~/nanopi-router
+sudo ./scripts/01-router-setup.sh
+```
+
+**Обновление (если уже скачан):**
+
 ```bash
 cd ~/nanopi-router
+git pull
 sudo ./scripts/01-router-setup.sh
 ```
 
@@ -67,6 +78,8 @@ sudo ./scripts/01-router-setup.sh
 # Пример: проброс порта 8080 с WAN на 192.168.10.100:80
 iifname "eth0" tcp dport 8080 dnat to 192.168.10.100:80
 ```
+
+Правило `ct status dnat accept` в цепочке `forward` уже разрешает прохождение DNAT-трафика — дополнительных forward-правил добавлять не нужно.
 
 Затем: `sudo systemctl restart nftables`
 

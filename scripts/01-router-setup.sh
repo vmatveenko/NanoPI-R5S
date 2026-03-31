@@ -6,6 +6,9 @@
 #  LAN:  eth1 + eth2 — объединены в мост br0, своя подсеть
 #  DHCP: isc-dhcp-server на br0
 #  NAT:  nftables masquerade eth0
+#
+#  Идемпотентный: безопасно запускать повторно с другими параметрами.
+#  Перед каждым запуском создаётся бэкап текущих конфигов.
 # ============================================================
 
 set -euo pipefail
@@ -22,6 +25,53 @@ info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 err()   { echo -e "${RED}[ERR ]${NC}  $*"; }
+
+# ── Вспомогательные функции ────────────────────────────────
+validate_ip() {
+    local ip=$1
+    if ! echo "$ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+        return 1
+    fi
+    local IFS='.'
+    read -r o1 o2 o3 o4 <<< "$ip"
+    for octet in $o1 $o2 $o3 $o4; do
+        [ "$octet" -ge 0 ] && [ "$octet" -le 255 ] || return 1
+    done
+    return 0
+}
+
+ip_to_int() {
+    local IFS='.'
+    read -r a b c d <<< "$1"
+    echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
+}
+
+int_to_ip() {
+    local n=$1
+    echo "$(( (n >> 24) & 255 )).$(( (n >> 16) & 255 )).$(( (n >> 8) & 255 )).$(( n & 255 ))"
+}
+
+cidr_to_mask() {
+    local cidr=$1
+    local mask=""
+    local full_octets=$((cidr / 8))
+    local partial=$((cidr % 8))
+    for ((i = 0; i < 4; i++)); do
+        if [ $i -lt $full_octets ]; then
+            mask+="255"
+        elif [ $i -eq $full_octets ]; then
+            if [ $partial -eq 0 ]; then
+                mask+="0"
+            else
+                mask+="$((256 - (1 << (8 - partial))))"
+            fi
+        else
+            mask+="0"
+        fi
+        [ $i -lt 3 ] && mask+="."
+    done
+    echo "$mask"
+}
 
 # ── Проверка root ───────────────────────────────────────────
 if [ "$EUID" -ne 0 ]; then
@@ -53,65 +103,54 @@ if [ "$MISSING" -eq 1 ]; then
     exit 1
 fi
 
-# ── Значения по умолчанию ───────────────────────────────────
+# ── Ввод LAN IP/CIDR ────────────────────────────────────────
 DEFAULT_LAN_CIDR="192.168.10.1/24"
-DEFAULT_RANGE_START="192.168.10.10"
-DEFAULT_RANGE_END="192.168.10.200"
-DEFAULT_DNS="8.8.8.8, 1.1.1.1"
 
-# ── Ввод параметров ─────────────────────────────────────────
 echo ""
 echo -e "${BOLD}Настройка LAN-сети:${NC}"
 read -p "  LAN IP/CIDR [$DEFAULT_LAN_CIDR]: " LAN_CIDR
 LAN_CIDR=${LAN_CIDR:-$DEFAULT_LAN_CIDR}
 
-# Парсинг CIDR
 LAN_IP=$(echo "$LAN_CIDR" | cut -d/ -f1)
 CIDR_PREFIX=$(echo "$LAN_CIDR" | cut -d/ -f2)
 
-# Валидация IP
-if ! echo "$LAN_IP" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
-    err "Неверный формат IP: $LAN_IP"
+if ! validate_ip "$LAN_IP"; then
+    err "Неверный IP-адрес: $LAN_IP (октеты должны быть 0–255)"
     exit 1
 fi
 
-# Валидация CIDR
 if ! [[ "$CIDR_PREFIX" =~ ^[0-9]+$ ]] || [ "$CIDR_PREFIX" -lt 8 ] || [ "$CIDR_PREFIX" -gt 30 ]; then
     err "Неверный CIDR-префикс: /$CIDR_PREFIX (допустимо: /8 — /30)"
     exit 1
 fi
 
-# ── Вычисление маски подсети из CIDR ────────────────────────
-cidr_to_mask() {
-    local cidr=$1
-    local mask=""
-    local full_octets=$((cidr / 8))
-    local partial=$((cidr % 8))
-    for ((i = 0; i < 4; i++)); do
-        if [ $i -lt $full_octets ]; then
-            mask+="255"
-        elif [ $i -eq $full_octets ]; then
-            if [ $partial -eq 0 ]; then
-                mask+="0"
-            else
-                mask+="$((256 - (1 << (8 - partial))))"
-            fi
-        else
-            mask+="0"
-        fi
-        [ $i -lt 3 ] && mask+="."
-    done
-    echo "$mask"
-}
-
+# ── Вычисление параметров подсети ────────────────────────────
 LAN_MASK=$(cidr_to_mask "$CIDR_PREFIX")
 
-# Вычисление адреса сети
 IFS='.' read -r a b c d <<< "$LAN_IP"
 IFS='.' read -r ma mb mc md <<< "$LAN_MASK"
 LAN_NET="$((a & ma)).$((b & mb)).$((c & mc)).$((d & md))"
 
-# DHCP-диапазон
+IFS='.' read -r _na _nb _nc _nd <<< "$LAN_NET"
+IFS='.' read -r _ma _mb _mc _md <<< "$LAN_MASK"
+LAN_BROADCAST="$((_na | (255 - _ma))).$((_nb | (255 - _mb))).$((_nc | (255 - _mc))).$((_nd | (255 - _md)))"
+
+# ── Динамические DHCP-дефолты на основе подсети ──────────────
+NET_INT=$(ip_to_int "$LAN_NET")
+BCAST_INT=$(ip_to_int "$LAN_BROADCAST")
+HOST_COUNT=$(( BCAST_INT - NET_INT - 1 ))
+
+if [ "$HOST_COUNT" -lt 20 ]; then
+    DEFAULT_RANGE_START=$(int_to_ip $(( NET_INT + 2 )))
+    DEFAULT_RANGE_END=$(int_to_ip $(( BCAST_INT - 1 )))
+else
+    DEFAULT_RANGE_START=$(int_to_ip $(( NET_INT + 10 )))
+    DEFAULT_RANGE_END=$(int_to_ip $(( BCAST_INT - 55 )))
+fi
+
+DEFAULT_DNS="8.8.8.8, 1.1.1.1"
+
+# ── Ввод DHCP-параметров ─────────────────────────────────────
 echo ""
 echo -e "${BOLD}Настройка DHCP:${NC}"
 read -p "  Начало диапазона [$DEFAULT_RANGE_START]: " RANGE_START
@@ -123,6 +162,53 @@ RANGE_END=${RANGE_END:-$DEFAULT_RANGE_END}
 read -p "  DNS-серверы [$DEFAULT_DNS]: " DNS_SERVERS
 DNS_SERVERS=${DNS_SERVERS:-$DEFAULT_DNS}
 
+# ── Валидация DHCP-диапазона ─────────────────────────────────
+for check_ip in "$RANGE_START" "$RANGE_END"; do
+    if ! validate_ip "$check_ip"; then
+        err "Неверный IP-адрес в DHCP-диапазоне: $check_ip"
+        exit 1
+    fi
+done
+
+RS_INT=$(ip_to_int "$RANGE_START")
+RE_INT=$(ip_to_int "$RANGE_END")
+
+if [ "$RS_INT" -le "$NET_INT" ] || [ "$RS_INT" -ge "$BCAST_INT" ]; then
+    err "Начало DHCP-диапазона ($RANGE_START) вне подсети $LAN_NET/$CIDR_PREFIX"
+    exit 1
+fi
+
+if [ "$RE_INT" -le "$NET_INT" ] || [ "$RE_INT" -ge "$BCAST_INT" ]; then
+    err "Конец DHCP-диапазона ($RANGE_END) вне подсети $LAN_NET/$CIDR_PREFIX"
+    exit 1
+fi
+
+if [ "$RS_INT" -ge "$RE_INT" ]; then
+    err "Начало DHCP-диапазона ($RANGE_START) должно быть меньше конца ($RANGE_END)"
+    exit 1
+fi
+
+LAN_IP_INT=$(ip_to_int "$LAN_IP")
+if [ "$LAN_IP_INT" -ge "$RS_INT" ] && [ "$LAN_IP_INT" -le "$RE_INT" ]; then
+    err "IP роутера ($LAN_IP) попадает в DHCP-диапазон ($RANGE_START — $RANGE_END)"
+    exit 1
+fi
+
+# ── Предупреждения о перезаписи кастомных конфигов ───────────
+HAS_CUSTOM=0
+
+if [ -f /etc/nftables.conf ] && grep -qE '^\s+[^#].*dnat\s' /etc/nftables.conf 2>/dev/null; then
+    warn "Обнаружены пользовательские правила DNAT (проброс портов) в nftables!"
+    warn "Они будут перезаписаны (бэкап сохранится)."
+    HAS_CUSTOM=1
+fi
+
+if [ -f /etc/dhcp/dhcpd.conf ] && grep -qE '^\s*hardware\s+ethernet' /etc/dhcp/dhcpd.conf 2>/dev/null; then
+    warn "Обнаружены статические DHCP-привязки (MAC → IP)!"
+    warn "Они будут перезаписаны (бэкап сохранится)."
+    HAS_CUSTOM=1
+fi
+
 # ── Подтверждение ───────────────────────────────────────────
 echo ""
 echo -e "${BOLD}═══ Итоговая конфигурация ═══${NC}"
@@ -131,8 +217,12 @@ echo "  LAN bridge:    br0 (eth1 + eth2)"
 echo "  LAN IP:        $LAN_CIDR"
 echo "  Сеть LAN:      $LAN_NET/$CIDR_PREFIX"
 echo "  Маска:         $LAN_MASK"
+echo "  Broadcast:     $LAN_BROADCAST"
 echo "  DHCP диапазон: $RANGE_START — $RANGE_END"
 echo "  DNS:           $DNS_SERVERS"
+echo ""
+warn "Если вы подключены по SSH через NetworkManager — соединение может оборваться!"
+warn "Рекомендуется запускать скрипт через консоль (UART/монитор) или screen/tmux."
 echo ""
 read -p "Продолжить установку? [Y/n]: " CONFIRM
 CONFIRM=${CONFIRM:-Y}
@@ -153,11 +243,26 @@ cp /etc/sysctl.d/99-router.conf "$BACKUP_DIR/"          2>/dev/null || true
 [ -f /etc/dhcp/dhcpd.conf ]        && cp /etc/dhcp/dhcpd.conf        "$BACKUP_DIR/"
 ok "Бэкап создан"
 
+# ── Остановка DHCP-сервера перед сменой сети ─────────────────
+if systemctl is-active --quiet isc-dhcp-server 2>/dev/null; then
+    info "Останавливаем isc-dhcp-server (перенастройка сети)..."
+    systemctl stop isc-dhcp-server
+    ok "isc-dhcp-server остановлен"
+fi
+
 # ── Установка пакетов ───────────────────────────────────────
-info "Обновление списка пакетов и установка..."
-apt-get update -qq
-apt-get install -y nftables isc-dhcp-server
-ok "Пакеты установлены: nftables, isc-dhcp-server"
+NEED_INSTALL=0
+dpkg -l nftables 2>/dev/null | grep -q '^ii' || NEED_INSTALL=1
+dpkg -l isc-dhcp-server 2>/dev/null | grep -q '^ii' || NEED_INSTALL=1
+
+if [ "$NEED_INSTALL" -eq 1 ]; then
+    info "Обновление списка пакетов и установка..."
+    apt-get update -qq
+    apt-get install -y nftables isc-dhcp-server
+    ok "Пакеты установлены: nftables, isc-dhcp-server"
+else
+    ok "Пакеты уже установлены: nftables, isc-dhcp-server"
+fi
 
 # ── Переключение на systemd-networkd ─────────────────────────
 # Образ FriendlyELEC использует NetworkManager, а netplan с renderer: networkd
@@ -184,7 +289,6 @@ fi
 if ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
     systemctl enable systemd-resolved
     systemctl start systemd-resolved
-    # Создаём symlink для /etc/resolv.conf если его нет или он битый
     if [ ! -e /etc/resolv.conf ]; then
         ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     fi
@@ -229,23 +333,40 @@ ok "Netplan применён"
 
 # Ожидание поднятия br0
 info "Ожидание br0..."
-for i in $(seq 1 20); do
+BR0_UP=0
+for i in $(seq 1 30); do
     if ip link show br0 up 2>/dev/null | grep -q "state UP\|state UNKNOWN"; then
         ok "br0 поднят"
+        BR0_UP=1
         break
     fi
     sleep 1
 done
 
-if ! ip link show br0 &>/dev/null; then
-    err "br0 не поднялся за 20 секунд"
+if [ "$BR0_UP" -eq 0 ]; then
+    err "br0 не поднялся за 30 секунд"
     exit 1
+fi
+
+# Ожидание присвоения IP на br0
+info "Ожидание IP на br0..."
+BR0_IP_READY=0
+for i in $(seq 1 10); do
+    if ip addr show br0 2>/dev/null | grep -q "inet $LAN_IP/"; then
+        ok "br0 получил IP $LAN_IP"
+        BR0_IP_READY=1
+        break
+    fi
+    sleep 1
+done
+
+if [ "$BR0_IP_READY" -eq 0 ]; then
+    warn "br0 не получил IP $LAN_IP за 10 секунд — продолжаем"
 fi
 
 # ── IP Forwarding ───────────────────────────────────────────
 info "Включение IP forwarding..."
 cat > /etc/sysctl.d/99-router.conf <<EOF
-# IP forwarding для роутера
 net.ipv4.ip_forward = 1
 EOF
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
@@ -276,7 +397,7 @@ table inet filter {
         # LAN (br0) — полный доступ к роутеру
         iifname "br0" accept
 
-        # WAN (eth0) — SSH (убрать если не нужен доступ извне)
+        # WAN (eth0) — SSH (раскомментировать при необходимости)
         # iifname "eth0" tcp dport 22 ct state new accept
 
         # Всё остальное на WAN — drop (policy)
@@ -290,6 +411,9 @@ table inet filter {
 
         # LAN → WAN (выход в интернет)
         iifname "br0" oifname "eth0" accept
+
+        # WAN → LAN для DNAT (проброс портов)
+        ct status dnat accept
 
         # Трафик внутри LAN через мост
         iifname "br0" oifname "br0" accept
@@ -323,8 +447,16 @@ ok "nftables настроен (NAT + firewall)"
 # ── DHCP-сервер ─────────────────────────────────────────────
 info "Настройка DHCP-сервера..."
 
-# Интерфейс для DHCP
-sed -i 's/^INTERFACESv4=.*/INTERFACESv4="br0"/' /etc/default/isc-dhcp-server
+# Интерфейс для DHCP — надёжная установка
+if [ -f /etc/default/isc-dhcp-server ]; then
+    if grep -q '^INTERFACESv4=' /etc/default/isc-dhcp-server; then
+        sed -i 's/^INTERFACESv4=.*/INTERFACESv4="br0"/' /etc/default/isc-dhcp-server
+    else
+        echo 'INTERFACESv4="br0"' >> /etc/default/isc-dhcp-server
+    fi
+else
+    echo 'INTERFACESv4="br0"' > /etc/default/isc-dhcp-server
+fi
 
 cat > /etc/dhcp/dhcpd.conf <<EOF
 # DHCP-сервер NanoPi R5S Router
@@ -339,7 +471,7 @@ subnet ${LAN_NET} netmask ${LAN_MASK} {
     option routers ${LAN_IP};
     option domain-name-servers ${DNS_SERVERS};
     option domain-name "lan";
-    option broadcast-address $(IFS='.' read -r a b c d <<< "${LAN_NET}"; IFS='.' read -r ma mb mc md <<< "${LAN_MASK}"; echo "$((a | (255 - ma))).$((b | (255 - mb))).$((c | (255 - mc))).$((d | (255 - md)))");
+    option broadcast-address ${LAN_BROADCAST};
 }
 
 # Статические привязки (пример):
@@ -369,14 +501,12 @@ check_service() {
 check_service nftables
 check_service isc-dhcp-server
 
-# Проверка NAT
 if nft list ruleset | grep -q "masquerade"; then
     ok "NAT masquerade — настроен"
 else
     warn "NAT masquerade — не найден в правилах!"
 fi
 
-# Проверка forwarding
 FWD=$(cat /proc/sys/net/ipv4/ip_forward)
 if [ "$FWD" = "1" ]; then
     ok "IP forwarding — включён"
