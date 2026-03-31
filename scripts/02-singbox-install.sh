@@ -270,7 +270,8 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
             rule_set: [],
             final: "direct",
             auto_detect_interface: true,
-            default_mark: 100
+            default_mark: 100,
+            default_domain_resolver: "dns-direct"
         }
     }' > "$SINGBOX_CONFIG"
 
