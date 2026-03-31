@@ -229,7 +229,7 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
             '{"tag": "dns-vpn", "type": "udp", "server": $s, "detour": "direct"}')
     fi
 
-    # Сборка полного конфига через jq
+    # Сборка полного конфига через jq (формат sing-box 1.13+)
     jq -n \
         --argjson dns_direct "$DNS_DIRECT_OBJ" \
         --argjson dns_vpn "$DNS_VPN_OBJ" \
@@ -249,27 +249,23 @@ if [ "$CONFIG_EXISTS" -eq 0 ]; then
                 interface_name: "tun0",
                 address: [$tun_addr],
                 auto_route: true,
-                strict_route: false,
-                sniff: true,
-                sniff_override_destination: true
+                strict_route: false
             },
             {
                 type: "mixed",
                 tag: "proxy-in",
                 listen: "::",
-                listen_port: $proxy_port,
-                sniff: true,
-                sniff_override_destination: true
+                listen_port: $proxy_port
             }
         ],
         outbounds: [
             { type: "direct", tag: "direct" },
-            { type: "block", tag: "block" },
-            { type: "dns", tag: "dns-out" }
+            { type: "block", tag: "block" }
         ],
         route: {
             rules: [
-                { protocol: "dns", outbound: "dns-out" }
+                { action: "sniff" },
+                { protocol: "dns", action: "hijack-dns" }
             ],
             rule_set: [],
             final: "direct",

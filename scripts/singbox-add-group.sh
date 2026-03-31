@@ -186,11 +186,11 @@ if [[ "$USE_PROXY" =~ ^[Yy]$ ]]; then
     CONFIG=$(echo "$CONFIG" | jq '
         .route.rules |= map(select(.inbound != ["proxy-in"]))
     ')
-    # Добавить новое правило proxy-in после DNS-правила
+    # Добавить новое правило proxy-in после action-правил (sniff, hijack-dns)
     CONFIG=$(echo "$CONFIG" | jq --arg tag "$GROUP_TAG" '
         .route.rules as $r |
-        ($r | to_entries | map(select(.value.protocol == "dns")) | .[-1].key // -1) as $dns_pos |
-        .route.rules = ($r[:$dns_pos+1] + [{inbound: ["proxy-in"], outbound: $tag}] + $r[$dns_pos+1:])
+        ($r | to_entries | map(select(.value.action != null)) | .[-1].key // -1) as $action_pos |
+        .route.rules = ($r[:$action_pos+1] + [{inbound: ["proxy-in"], outbound: $tag}] + $r[$action_pos+1:])
     ')
     ok "Proxy-in → $GROUP_TAG"
 fi

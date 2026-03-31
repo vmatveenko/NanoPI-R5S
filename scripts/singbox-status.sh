@@ -80,10 +80,18 @@ RULES_COUNT=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
 i=1
 for ((idx=0; idx<RULES_COUNT; idx++)); do
     RULE=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
-    OUTBOUND=$(echo "$RULE" | jq -r '.outbound')
+    OUTBOUND=$(echo "$RULE" | jq -r '.outbound // empty')
+    ACTION=$(echo "$RULE" | jq -r '.action // empty')
 
     # Определяем тип правила для красивого отображения
-    if echo "$RULE" | jq -e '.protocol' >/dev/null 2>&1; then
+    if [ -n "$ACTION" ] && [ "$ACTION" != "route" ]; then
+        PROTO=$(echo "$RULE" | jq -r '.protocol // ""')
+        if [ -n "$PROTO" ]; then
+            printf "  %2d. protocol: %-13s action: %s\n" "$i" "$PROTO" "$ACTION"
+        else
+            printf "  %2d. action: %s\n" "$i" "$ACTION"
+        fi
+    elif echo "$RULE" | jq -e '.protocol' >/dev/null 2>&1; then
         PROTO=$(echo "$RULE" | jq -r '.protocol')
         printf "  %2d. protocol: %-20s → %s\n" "$i" "$PROTO" "$OUTBOUND"
     elif echo "$RULE" | jq -e '.inbound' >/dev/null 2>&1; then
