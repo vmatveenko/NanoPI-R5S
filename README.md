@@ -39,7 +39,7 @@
 ```bash
 git clone https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-router
 cd ~/nanopi-router
-chmod +x scripts/*.sh singbox.sh
+chmod +x scripts/*.sh *.sh
 sudo ./scripts/01-router-setup.sh
 ```
 
@@ -50,7 +50,7 @@ cd ~/nanopi-router
 git reset --hard
 git pull
 sudo rm /etc/sing-box/config.json
-chmod +x scripts/*.sh singbox.sh
+chmod +x scripts/*.sh *.sh
 sudo ./scripts/02-singbox-install.sh
 ```
 
