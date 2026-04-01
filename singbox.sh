@@ -11,30 +11,106 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/scripts/singbox-common.sh"
 
-# ── Визуальные константы ────────────────────────────────────
+# ── UI helpers ───────────────────────────────────────────────
 DIM='\033[2m'
+UI_MIN_WIDTH=64
+UI_MAX_WIDTH=100
+UI_PAD=2
+
+term_width() {
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 80)
+    if ! [[ "$cols" =~ ^[0-9]+$ ]]; then
+        cols=80
+    fi
+    [ "$cols" -lt "$UI_MIN_WIDTH" ] && cols=$UI_MIN_WIDTH
+    [ "$cols" -gt "$UI_MAX_WIDTH" ] && cols=$UI_MAX_WIDTH
+    echo "$cols"
+}
+
+repeat_char() {
+    local ch="$1" count="$2"
+    [ "$count" -le 0 ] && return 0
+    printf '%*s' "$count" '' | tr ' ' "$ch"
+}
+
+rule_line() {
+    local ch="${1:--}"
+    local cols line_w
+    cols=$(term_width)
+    line_w=$((cols - UI_PAD * 2))
+    repeat_char "$ch" "$line_w"
+}
+
+truncate_text() {
+    local s="${1:-}" max="${2:-20}"
+    local ellipsis="..."
+    [ "$max" -le 0 ] && { printf ''; return; }
+    if [ ${#s} -le "$max" ]; then
+        printf '%s' "$s"
+    elif [ "$max" -le 3 ]; then
+        printf '%.*s' "$max" "$s"
+    else
+        printf '%s%s' "${s:0:max-3}" "$ellipsis"
+    fi
+}
+
+print_kv() {
+    local key="$1" value="$2" key_w=16
+    printf '  %-*s %b\n' "$key_w" "$key" "$value"
+}
+
+print_note() {
+    printf '  %b\n' "$1"
+}
+
+print_item() {
+    local idx="$1" kind="$2" title="$3" detail="${4:-}" color="${5:-$NC}"
+    local cols kind_w title_w idx_txt title_txt detail_txt
+    cols=$(term_width)
+    kind_w=10
+    idx_txt=$(printf '%2s' "$idx")
+    title_w=$((cols - UI_PAD * 2 - 2 - 2 - kind_w - 2))
+    [ "$title_w" -lt 12 ] && title_w=12
+    title_txt=$(truncate_text "$title" "$title_w")
+    printf '  %b%s%b  %-*s  %s\n' "$color" "$idx_txt" "$NC" "$kind_w" "[$kind]" "$title_txt"
+    if [ -n "$detail" ]; then
+        detail_txt=$(truncate_text "$detail" $((cols - UI_PAD * 2 - 4)))
+        printf '      %b%s%b\n' "$DIM" "$detail_txt" "$NC"
+    fi
+}
+
+print_route_rule() {
+    local idx="$1" left="$2" right="$3" mark="${4:-}" color="${5:-$NC}"
+    local cols left_w left_txt suffix=''
+    cols=$(term_width)
+    left_w=$((cols - UI_PAD * 2 - 2 - 2 - 4 - 3 - 16))
+    [ "$left_w" -lt 18 ] && left_w=18
+    [ -n "$mark" ] && suffix=" $mark"
+    left_txt=$(truncate_text "$left" "$left_w")
+    printf '  %b%2s%b  %-*s -> %s%s\n' "$color" "$idx" "$NC" "$left_w" "$left_txt" "$right" "$suffix"
+}
 
 draw_header() {
     local title="$1" color="${2:-$CYAN}"
-    echo ""
-    echo -e "  ${color}${BOLD}▌ ${title}${NC}"
-    echo -e "  ${color}$(printf '%.0s━' $(seq 1 44))${NC}"
+    echo
+    print_note "${color}${BOLD}▌ ${title}${NC}"
+    print_note "${color}$(rule_line '=')${NC}"
 }
 
 draw_section() {
-    echo ""
-    echo -e "  ${BOLD}$1${NC}"
-    echo -e "  ${DIM}$(printf '%.0s─' $(seq 1 44))${NC}"
+    echo
+    print_note "${BOLD}$1${NC}"
+    print_note "${DIM}$(rule_line '-')${NC}"
 }
 
 separator() {
-    echo -e "  ${DIM}$(printf '%.0s·' $(seq 1 44))${NC}"
+    print_note "${DIM}$(rule_line '.')${NC}"
 }
 
 urldecode() {
     printf '%b' "${1//%/\\x}"
 }
-
 # ════════════════════════════════════════════════════════════
 #  СТАТУС
 # ════════════════════════════════════════════════════════════
@@ -44,131 +120,137 @@ cmd_status() {
     local version
     version=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
 
-    local svc_status
+    local svc_status svc_plain
     if systemctl is-active --quiet sing-box 2>/dev/null; then
         svc_status="${GREEN}active${NC}"
+        svc_plain="active"
     else
         svc_status="${RED}inactive${NC}"
+        svc_plain="inactive"
     fi
 
-    local tun_iface tun_addr proxy_port tun_status
+    local tun_iface tun_addr proxy_port tun_status tun_plain
     tun_iface=$(jq -r '.inbounds[] | select(.type == "tun") | .interface_name // "tun0"' "$SINGBOX_CONFIG" 2>/dev/null)
     tun_addr=$(jq -r '.inbounds[] | select(.type == "tun") | .address[0] // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
     proxy_port=$(jq -r '.inbounds[] | select(.type == "mixed") | .listen_port // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
 
     if ip link show "$tun_iface" &>/dev/null; then
         tun_status="${GREEN}UP${NC}"
+        tun_plain="UP"
     else
         tun_status="${RED}DOWN${NC}"
+        tun_plain="DOWN"
     fi
 
-    echo ""
-    printf "  %-16s %b\n" "Сервис:" "$svc_status"
-    printf "  %-16s %s\n" "Версия:" "$version"
-    printf "  %-16s %s (%s)\n" "TUN:" "$tun_iface" "$tun_addr"
-    printf "  %-16s %b\n" "TUN статус:" "$tun_status"
-    printf "  %-16s %s\n" "Proxy:" ":${proxy_port} (SOCKS5 + HTTP)"
+    print_kv "Сервис:" "$svc_status"
+    print_kv "Версия:" "$version"
+    print_kv "TUN:" "$(truncate_text "$tun_iface ($tun_addr)" 60)"
+    print_kv "TUN статус:" "$tun_status"
+    print_kv "Proxy:" ":${proxy_port} (SOCKS5 + HTTP)"
 
-    # ── Outbound'ы ──
     draw_section "Серверы и группы"
 
     local ob_count
     ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
     for ((oi=0; oi<ob_count; oi++)); do
-        local ob_type ob_tag ob_server ob_port ob_members ob_num=$((oi + 1))
+        local ob_type ob_tag ob_server ob_port ob_members ob_num=$((oi + 1)) detail color
         ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
         ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
         ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
         ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
         ob_members=$(jq -r "(.outbounds[$oi].outbounds // []) | join(\", \")" "$SINGBOX_CONFIG")
+        color="$NC"
+        detail=""
         case "$ob_type" in
             vless)
-                printf "  ${CYAN}%2d${NC}  %-10s %-22s %s:%s\n" "$ob_num" "[$ob_type]" "$ob_tag" "$ob_server" "$ob_port"
+                color="$CYAN"
+                detail="$ob_server:$ob_port"
                 ;;
             urltest|selector)
-                printf "  ${YELLOW}%2d${NC}  %-10s %-22s %s\n" "$ob_num" "[$ob_type]" "$ob_tag" "$ob_members"
+                color="$YELLOW"
+                detail="members: $ob_members"
                 ;;
             direct)
-                printf "  ${GREEN}%2d${NC}  %-10s %s\n" "$ob_num" "[$ob_type]" "$ob_tag"
+                color="$GREEN"
                 ;;
             block)
-                printf "  ${RED}%2d${NC}  %-10s %s\n" "$ob_num" "[$ob_type]" "$ob_tag"
-                ;;
-            *)
-                printf "  %2d  %-10s %s\n" "$ob_num" "[$ob_type]" "$ob_tag"
+                color="$RED"
                 ;;
         esac
+        print_item "$ob_num" "$ob_type" "$ob_tag" "$detail" "$color"
     done
 
-    # ── Правила маршрутизации ──
     draw_section "Правила маршрутизации"
 
     local rules_count ri=1
     rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
     for ((idx=0; idx<rules_count; idx++)); do
-        local rule outbound action
+        local rule outbound action left mark color
         rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
         outbound=$(echo "$rule" | jq -r '.outbound // empty')
         action=$(echo "$rule" | jq -r '.action // empty')
+        mark=""
+        color="$NC"
 
         if [ -n "$action" ] && [ "$action" != "route" ]; then
             local proto
             proto=$(echo "$rule" | jq -r '.protocol // ""')
             if [ -n "$proto" ]; then
-                printf "  ${DIM}%2d${NC}  protocol: %-12s action: %s\n" "$ri" "$proto" "$action"
+                left="protocol: $proto"
             else
-                printf "  ${DIM}%2d${NC}  action: %s\n" "$ri" "$action"
+                left="action"
             fi
+            print_route_rule "$ri" "$left" "$action" "" "$DIM"
         elif echo "$rule" | jq -e '.inbound' >/dev/null 2>&1; then
             local inb
             inb=$(echo "$rule" | jq -r '.inbound | join(", ")')
-            printf "  %2d  inbound: %-18s → %s\n" "$ri" "$inb" "$outbound"
+            print_route_rule "$ri" "inbound: $inb" "$outbound"
         elif echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
             local rs
             rs=$(echo "$rule" | jq -r '.rule_set | join(", ")')
-            printf "  %2d  rule-set: %-17s → %s\n" "$ri" "$rs" "$outbound"
+            print_route_rule "$ri" "rule-set: $rs" "$outbound"
         elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
             local dom
             dom=$(echo "$rule" | jq -r '.domain | join(", ")')
-            printf "  %2d  domain: %-18s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$dom" "$outbound"
+            print_route_rule "$ri" "domain: $dom" "$outbound" "${YELLOW}[manual]${NC}"
         elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
             local ds
             ds=$(echo "$rule" | jq -r '.domain_suffix | join(", ")')
-            printf "  %2d  domain_suffix: %-11s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$ds" "$outbound"
+            print_route_rule "$ri" "domain_suffix: $ds" "$outbound" "${YELLOW}[manual]${NC}"
         elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
             local dk
             dk=$(echo "$rule" | jq -r '.domain_keyword | join(", ")')
-            printf "  %2d  domain_keyword: %-10s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$dk" "$outbound"
+            print_route_rule "$ri" "domain_keyword: $dk" "$outbound" "${YELLOW}[manual]${NC}"
         elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
             local ic
             ic=$(echo "$rule" | jq -r '.ip_cidr | join(", ")')
-            printf "  %2d  ip_cidr: %-17s → %s  ${YELLOW}[manual]${NC}\n" "$ri" "$ic" "$outbound"
+            print_route_rule "$ri" "ip_cidr: $ic" "$outbound" "${YELLOW}[manual]${NC}"
         else
-            printf "  %2d  (другое)                   → %s\n" "$ri" "$outbound"
+            print_route_rule "$ri" "(другое)" "$outbound"
         fi
         ri=$((ri + 1))
     done
 
     local final
     final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    printf "  ${DIM}%2d  * (final)                   → %s${NC}\n" "$ri" "$final"
+    print_route_rule "$ri" "* final" "$final" "" "$DIM"
 
-    # ── DNS ──
     draw_section "DNS"
 
     local dns_servers_count
     dns_servers_count=$(jq '.dns.servers | length' "$SINGBOX_CONFIG" 2>/dev/null)
     for ((di=0; di<dns_servers_count; di++)); do
-        local d_tag d_type d_server d_detour
+        local d_tag d_type d_server d_detour detail
         d_tag=$(jq -r ".dns.servers[$di].tag // \"?\"" "$SINGBOX_CONFIG")
         d_type=$(jq -r ".dns.servers[$di].type // \"?\"" "$SINGBOX_CONFIG")
         d_server=$(jq -r ".dns.servers[$di].server // \"\"" "$SINGBOX_CONFIG")
         d_detour=$(jq -r ".dns.servers[$di].detour // \"-\"" "$SINGBOX_CONFIG")
         if [ -n "$d_server" ]; then
-            printf "  %-14s %s://%s  (detour: %s)\n" "$d_tag:" "$d_type" "$d_server" "$d_detour"
+            detail="$d_type://$d_server | detour: $d_detour"
         else
-            printf "  %-14s %s  (detour: %s)\n" "$d_tag:" "$d_type" "$d_detour"
+            detail="$d_type | detour: $d_detour"
         fi
+        print_item "$((di + 1))" "dns" "$d_tag" "$detail"
     done
 
     local dns_rules_count
@@ -176,39 +258,42 @@ cmd_status() {
     if [ "$dns_rules_count" -gt 0 ]; then
         separator
         for ((idx=0; idx<dns_rules_count; idx++)); do
-            local dr server
+            local dr server left
             dr=$(jq -c ".dns.rules[$idx]" "$SINGBOX_CONFIG")
             server=$(echo "$dr" | jq -r '.server')
             if echo "$dr" | jq -e '.rule_set' >/dev/null 2>&1; then
                 local rs
                 rs=$(echo "$dr" | jq -r '.rule_set | join(", ")')
-                printf "  rule-set: %-20s → %s\n" "$rs" "$server"
+                left="rule-set: $rs"
             elif echo "$dr" | jq -e '.domain' >/dev/null 2>&1; then
                 local d
                 d=$(echo "$dr" | jq -r '.domain | join(", ")')
-                printf "  domain: %-22s → %s\n" "$d" "$server"
+                left="domain: $d"
             elif echo "$dr" | jq -e '.domain_suffix' >/dev/null 2>&1; then
                 local ds
                 ds=$(echo "$dr" | jq -r '.domain_suffix | join(", ")')
-                printf "  domain_suffix: %-15s → %s\n" "$ds" "$server"
+                left="domain_suffix: $ds"
             else
-                printf "  (другое)                       → %s\n" "$server"
+                left="(другое)"
             fi
+            print_route_rule "$((idx + 1))" "$left" "$server"
         done
     fi
 
     local dns_final
     dns_final=$(jq -r '.dns.final // "dns-direct"' "$SINGBOX_CONFIG")
-    printf "  ${DIM}* (final) → %s${NC}\n" "$dns_final"
+    print_kv "DNS final:" "$dns_final"
 
     local rs_count
     rs_count=$(jq '.route.rule_set | length' "$SINGBOX_CONFIG" 2>/dev/null)
     if [ "$rs_count" -gt 0 ]; then
         draw_section "Rule-sets"
-        jq -r '.route.rule_set[] | "  \(.tag) (\(.type))"' "$SINGBOX_CONFIG"
+        while IFS= read -r line; do
+            print_note "  $line"
+        done < <(jq -r '.route.rule_set[] | "• \(.tag) [\(.type)]"' "$SINGBOX_CONFIG")
     fi
 
-    echo ""
+    echo
 }
 
 # ════════════════════════════════════════════════════════════
@@ -400,7 +485,7 @@ cmd_add_group() {
         tag_arr+=("$tag")
         local srv
         srv=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | "\(.server):\(.server_port)"' "$SINGBOX_CONFIG")
-        printf "  %2d  %-24s %s\n" "$i" "$tag" "$srv"
+        print_item "$i" "vless" "$tag" "$srv" "$CYAN"
         i=$((i + 1))
     done <<< "$vless_tags"
 
@@ -442,6 +527,7 @@ cmd_add_group() {
         echo -e "  ${BOLD}Health-check:${NC}"
         read -p "  URL [${health_url}]: " inp; health_url=${inp:-$health_url}
         read -p "  Интервал [${health_int}]: " inp; health_int=${inp:-$health_int}
+        [[ "$health_int" =~ ^[0-9]+$ ]] && health_int="${health_int}m"
         read -p "  Tolerance, мс [${health_tol}]: " inp; health_tol=${inp:-$health_tol}
     fi
 
@@ -543,7 +629,7 @@ cmd_add_rule() {
         echo "     7) microsoft   15) steam       23) wikipedia"
         echo "     8) apple       16) paypal      24) другое (ввести вручную)"
         echo ""
-        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite${NC}"
+        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite/tree/rule-set${NC}"
         echo ""
         read -p "  Выбор [24]: " gc; gc=${gc:-24}
         case "$gc" in
@@ -605,7 +691,7 @@ cmd_add_rule() {
         ob_arr+=("$ob")
         local ob_type
         ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
-        printf "    %d) [%-10s] %s\n" "$i" "$ob_type" "$ob"
+        printf "    %d) [%-10s] %s\n" "$i" "$ob_type" "$(truncate_text "$ob" 48)"
         i=$((i + 1))
     done <<< "$outbounds"
     echo ""
@@ -724,7 +810,7 @@ cmd_delete_outbound() {
         del_arr+=("$tag")
         local ob_type
         ob_type=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
-        printf "  %2d  [%-10s] %s\n" "$i" "$ob_type" "$tag"
+        print_item "$i" "$ob_type" "$tag" ""
         i=$((i + 1))
     done <<< "$custom_obs"
     echo ""
@@ -799,7 +885,7 @@ cmd_delete_rule() {
         else
             label="(другое)"
         fi
-        printf "  %2d  %-36s → %s\n" "$user_rules" "$label" "$outbound"
+        print_route_rule "$user_rules" "$label" "$outbound"
     done
 
     if [ "$user_rules" -eq 0 ]; then
@@ -854,40 +940,45 @@ main_menu() {
     check_jq
 
     while true; do
-        echo ""
-        echo -e "${CYAN}${BOLD}  sing-box · Управление${NC}"
-        echo -e "  ${DIM}$(printf '%.0s─' $(seq 1 44))${NC}"
+        echo
+        print_note "${CYAN}${BOLD}  sing-box · Управление${NC}"
+        print_note "  ${DIM}$(rule_line '-')${NC}"
 
-        # Компактная строка статуса
-        local svc_label
+        local svc_label svc_color ver tun_label tun_color status_line
         if systemctl is-active --quiet sing-box 2>/dev/null; then
-            svc_label="${GREEN}●${NC} active"
+            svc_label="active"
+            svc_color="$GREEN"
         else
-            svc_label="${RED}●${NC} inactive"
+            svc_label="inactive"
+            svc_color="$RED"
         fi
-        local ver
         ver=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
-        local tun_label
         if ip link show tun0 &>/dev/null; then
-            tun_label="${GREEN}UP${NC}"
+            tun_label="UP"
+            tun_color="$GREEN"
         else
-            tun_label="${RED}DOWN${NC}"
+            tun_label="DOWN"
+            tun_color="$RED"
         fi
-        echo -e "  ${svc_label}  │  v${ver}  │  TUN: ${tun_label}"
-        echo -e "  ${DIM}$(printf '%.0s─' $(seq 1 44))${NC}"
+        print_note "  ${svc_color}●${NC} service: ${svc_label}   ${DIM}|${NC}   version: v${ver}   ${DIM}|${NC}   TUN: ${tun_color}${tun_label}${NC}"
+        print_note "  ${DIM}$(rule_line '-')${NC}"
 
-        echo ""
-        echo "    1)  Статус             показать конфигурацию"
-        echo "    2)  Добавить сервер    VLESS-подключение"
-        echo "    3)  Создать группу     urltest / selector"
-        echo "    4)  Добавить правило   маршрутизация трафика"
-        echo "    5)  Применить          проверить и перезапустить"
-        echo ""
-        echo "    6)  Удалить сервер/группу"
-        echo "    7)  Удалить правило"
-        echo ""
-        echo "    0)  Выход"
-        echo ""
+        echo
+        print_note "  ${BOLD}Просмотр${NC}"
+        print_note "    1) Статус              показать конфигурацию"
+        echo
+        print_note "  ${BOLD}Настройка${NC}"
+        print_note "    2) Добавить сервер     VLESS-подключение"
+        print_note "    3) Создать группу      urltest / selector"
+        print_note "    4) Добавить правило    маршрутизация трафика"
+        print_note "    5) Применить           проверить и перезапустить"
+        echo
+        print_note "  ${BOLD}Очистка${NC}"
+        print_note "    6) Удалить сервер/группу"
+        print_note "    7) Удалить правило"
+        echo
+        print_note "    0) Выход"
+        echo
         read -p "  > " choice
 
         case "$choice" in
