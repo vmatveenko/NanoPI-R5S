@@ -115,134 +115,166 @@ urldecode() {
 #  СТАТУС
 # ════════════════════════════════════════════════════════════
 cmd_status() {
-
     echo ""
-    echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}${BOLD}║                     Статус                   ║${NC}"
-    echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
-    echo ""
+    echo -e "  ${CYAN}${BOLD}▌ Статус${NC}"
+    echo -e "  ────────────────────────────────────────────"
 
     local version
     version=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
 
-    local svc_status svc_plain
+    local svc_status
     if systemctl is-active --quiet sing-box 2>/dev/null; then
         svc_status="${GREEN}active${NC}"
-        svc_plain="active"
     else
         svc_status="${RED}inactive${NC}"
-        svc_plain="inactive"
     fi
 
-    local tun_iface tun_addr proxy_port tun_status tun_plain
+    local tun_iface tun_addr proxy_port tun_status
     tun_iface=$(jq -r '.inbounds[] | select(.type == "tun") | .interface_name // "tun0"' "$SINGBOX_CONFIG" 2>/dev/null)
     tun_addr=$(jq -r '.inbounds[] | select(.type == "tun") | .address[0] // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
     proxy_port=$(jq -r '.inbounds[] | select(.type == "mixed") | .listen_port // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
 
     if ip link show "$tun_iface" &>/dev/null; then
         tun_status="${GREEN}UP${NC}"
-        tun_plain="UP"
     else
         tun_status="${RED}DOWN${NC}"
-        tun_plain="DOWN"
     fi
 
-    echo -e "Сервис:      $svc_status"
-    echo -e "Версия:      $version"
-    echo -e "TUN:         $tun_iface ($tun_addr)"
-    echo -e "TUN статус:  $tun_status"
-    echo -e "Proxy:       :${proxy_port} (SOCKS5 + HTTP)"
+    echo -e "  Сервис:           $svc_status"
+    echo -e "  Версия:           $version"
+    echo -e "  TUN:              $tun_iface ($tun_addr)"
+    echo -e "  TUN статус:       $tun_status"
+    echo -e "  Proxy-in:         :${proxy_port} (SOCKS5/HTTP)"
+
+    # ── Серверы (vless) ──
     echo ""
-
-    draw_section "Серверы и группы"
-
-    local ob_count
+    echo -e "  ${BOLD}Серверы${NC}"
+    echo -e "  ──────────────────────────────────────────"
+    local ob_count si=1
     ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
     for ((oi=0; oi<ob_count; oi++)); do
-        local ob_type ob_tag ob_server ob_port ob_members ob_num=$((oi + 1)) detail color
+        local ob_type ob_tag ob_server ob_port
         ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
         ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
+        [ "$ob_type" != "vless" ] && continue
         ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
         ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
-        ob_members=$(jq -r "(.outbounds[$oi].outbounds // []) | join(\", \")" "$SINGBOX_CONFIG")
-        color="$NC"
-        detail=""
-        case "$ob_type" in
-            vless)
-                color="$CYAN"
-                detail="$ob_server:$ob_port"
-                ;;
-            urltest|selector)
-                color="$YELLOW"
-                detail="members: $ob_members"
-                ;;
-            direct)
-                color="$GREEN"
-                ;;
-            block)
-                color="$RED"
-                ;;
-        esac
-        print_item "$ob_num" "$ob_type" "$ob_tag" "$detail" "$color"
+        printf "   %d  [vless]       %s → %s:%s\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
+        si=$((si + 1))
     done
 
-    draw_section "Правила маршрутизации"
+    # ── Группы (urltest/selector) — только если есть ──
+    local has_groups=0
+    for ((oi=0; oi<ob_count; oi++)); do
+        local ot
+        ot=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
+        if [ "$ot" = "urltest" ] || [ "$ot" = "selector" ]; then
+            has_groups=1; break
+        fi
+    done
+    if [ "$has_groups" -eq 1 ]; then
+        echo ""
+        echo -e "  ${BOLD}Группы${NC}"
+        echo -e "  ──────────────────────────────────────────"
+        local gi=1
+        for ((oi=0; oi<ob_count; oi++)); do
+            local ob_type ob_tag ob_members
+            ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
+            [ "$ob_type" != "urltest" ] && [ "$ob_type" != "selector" ] && continue
+            ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
+            ob_members=$(jq -r "(.outbounds[$oi].outbounds // []) | join(\", \")" "$SINGBOX_CONFIG")
+            printf "   %d  [%-10s]  %s → %s\n" "$gi" "$ob_type" "$ob_tag" "$ob_members"
+            gi=$((gi + 1))
+        done
+    fi
 
+    # ── Служебные outbound'ы ──
+    echo ""
+    echo -e "  ${BOLD}Служебные outbound'ы${NC}"
+    echo -e "  ──────────────────────────────────────────"
+    for ((oi=0; oi<ob_count; oi++)); do
+        local ob_type ob_tag
+        ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
+        ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
+        case "$ob_type" in
+            direct|block|dns) printf "   •  [%-10s]  %s\n" "$ob_type" "$ob_tag" ;;
+        esac
+    done
+
+    # ── Правила маршрутизации ──
     local rules_count ri=1
     rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
+
+    # Системные правила
+    echo ""
+    echo -e "  ${BOLD}Системные правила${NC}"
+    echo -e "  ──────────────────────────────────────────"
     for ((idx=0; idx<rules_count; idx++)); do
-        local rule outbound action left mark color
+        local rule action outbound
         rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
-        outbound=$(echo "$rule" | jq -r '.outbound // empty')
         action=$(echo "$rule" | jq -r '.action // empty')
-        mark=""
-        color="$NC"
+        outbound=$(echo "$rule" | jq -r '.outbound // empty')
 
         if [ -n "$action" ] && [ "$action" != "route" ]; then
             local proto
-            proto=$(echo "$rule" | jq -r '.protocol // ""')
+            proto=$(echo "$rule" | jq -r '.protocol // empty')
             if [ -n "$proto" ]; then
-                left="protocol: $proto"
+                printf "   %d  %-40s -> %s\n" "$ri" "protocol: $proto" "$action"
             else
-                left="action"
+                printf "   %d  action: %s\n" "$ri" "$action"
             fi
-            print_route_rule "$ri" "$left" "$action" "" "$DIM"
+            ri=$((ri + 1))
         elif echo "$rule" | jq -e '.inbound' >/dev/null 2>&1; then
             local inb
             inb=$(echo "$rule" | jq -r '.inbound | join(", ")')
-            print_route_rule "$ri" "inbound: $inb" "$outbound"
-        elif echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
-            local rs
-            rs=$(echo "$rule" | jq -r '.rule_set | join(", ")')
-            print_route_rule "$ri" "rule-set: $rs" "$outbound"
-        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
-            local dom
-            dom=$(echo "$rule" | jq -r '.domain | join(", ")')
-            print_route_rule "$ri" "domain: $dom" "$outbound" "${YELLOW}[manual]${NC}"
-        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
-            local ds
-            ds=$(echo "$rule" | jq -r '.domain_suffix | join(", ")')
-            print_route_rule "$ri" "domain_suffix: $ds" "$outbound" "${YELLOW}[manual]${NC}"
-        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
-            local dk
-            dk=$(echo "$rule" | jq -r '.domain_keyword | join(", ")')
-            print_route_rule "$ri" "domain_keyword: $dk" "$outbound" "${YELLOW}[manual]${NC}"
-        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
-            local ic
-            ic=$(echo "$rule" | jq -r '.ip_cidr | join(", ")')
-            print_route_rule "$ri" "ip_cidr: $ic" "$outbound" "${YELLOW}[manual]${NC}"
-        else
-            print_route_rule "$ri" "(другое)" "$outbound"
+            printf "   %d  %-40s -> %s\n" "$ri" "inbound: $inb" "$outbound"
+            ri=$((ri + 1))
         fi
+    done
+
+    # Пользовательские правила
+    echo ""
+    echo -e "  ${BOLD}Пользовательские правила${NC}"
+    echo -e "  ──────────────────────────────────────────"
+    for ((idx=0; idx<rules_count; idx++)); do
+        local rule action outbound
+        rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
+        action=$(echo "$rule" | jq -r '.action // empty')
+        outbound=$(echo "$rule" | jq -r '.outbound // empty')
+
+        [ -n "$action" ] && [ "$action" != "route" ] && continue
+        echo "$rule" | jq -e '.inbound' >/dev/null 2>&1 && continue
+
+        local label="" mark=""
+        if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+            label="rule-set: $(echo "$rule" | jq -r '.rule_set | join(", ")')"
+        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+            label="domain: $(echo "$rule" | jq -r '.domain | join(", ")')"
+            mark=" [manual]"
+        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+            label="domain_suffix: $(echo "$rule" | jq -r '.domain_suffix | join(", ")')"
+            mark=" [manual]"
+        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+            label="domain_keyword: $(echo "$rule" | jq -r '.domain_keyword | join(", ")')"
+            mark=" [manual]"
+        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+            label="ip_cidr: $(echo "$rule" | jq -r '.ip_cidr | join(", ")')"
+            mark=" [manual]"
+        else
+            label="(другое)"
+        fi
+        printf "   %d  %-40s -> %s%s\n" "$ri" "$label" "$outbound" "$mark"
         ri=$((ri + 1))
     done
 
     local final
     final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    print_route_rule "$ri" "* final" "$final" "" "$DIM"
+    printf "   %d  %-40s -> %s\n" "$ri" "final" "$final"
 
-    draw_section "DNS"
-
+    # ── DNS ──
+    echo ""
+    echo -e "  ${BOLD}DNS${NC}"
+    echo -e "  ──────────────────────────────────────────"
     local dns_servers_count
     dns_servers_count=$(jq '.dns.servers | length' "$SINGBOX_CONFIG" 2>/dev/null)
     for ((di=0; di<dns_servers_count; di++)); do
@@ -252,54 +284,55 @@ cmd_status() {
         d_server=$(jq -r ".dns.servers[$di].server // \"\"" "$SINGBOX_CONFIG")
         d_detour=$(jq -r ".dns.servers[$di].detour // \"-\"" "$SINGBOX_CONFIG")
         if [ -n "$d_server" ]; then
-            detail="$d_type://$d_server | detour: $d_detour"
+            detail="${d_type}://${d_server} (detour: ${d_detour})"
         else
-            detail="$d_type | detour: $d_detour"
+            detail="${d_type} (detour: ${d_detour})"
         fi
-        print_item "$((di + 1))" "dns" "$d_tag" "$detail"
+        printf "   %d  [dns]         %s → %s\n" "$((di + 1))" "$d_tag" "$detail"
     done
 
+    # DNS-правила
     local dns_rules_count
     dns_rules_count=$(jq '.dns.rules | length' "$SINGBOX_CONFIG" 2>/dev/null)
     if [ "$dns_rules_count" -gt 0 ]; then
-        separator
+        echo ""
+        echo -e "  ${BOLD}DNS-правила${NC}"
+        echo -e "  ──────────────────────────────────────────"
         for ((idx=0; idx<dns_rules_count; idx++)); do
             local dr server left
             dr=$(jq -c ".dns.rules[$idx]" "$SINGBOX_CONFIG")
             server=$(echo "$dr" | jq -r '.server')
             if echo "$dr" | jq -e '.rule_set' >/dev/null 2>&1; then
-                local rs
-                rs=$(echo "$dr" | jq -r '.rule_set | join(", ")')
-                left="rule-set: $rs"
+                left="rule-set: $(echo "$dr" | jq -r '.rule_set | join(", ")')"
             elif echo "$dr" | jq -e '.domain' >/dev/null 2>&1; then
-                local d
-                d=$(echo "$dr" | jq -r '.domain | join(", ")')
-                left="domain: $d"
+                left="domain: $(echo "$dr" | jq -r '.domain | join(", ")')"
             elif echo "$dr" | jq -e '.domain_suffix' >/dev/null 2>&1; then
-                local ds
-                ds=$(echo "$dr" | jq -r '.domain_suffix | join(", ")')
-                left="domain_suffix: $ds"
+                left="domain_suffix: $(echo "$dr" | jq -r '.domain_suffix | join(", ")')"
             else
                 left="(другое)"
             fi
-            print_route_rule "$((idx + 1))" "$left" "$server"
+            printf "   %d  %-40s -> %s\n" "$((idx + 1))" "$left" "$server"
         done
     fi
 
+    echo ""
     local dns_final
     dns_final=$(jq -r '.dns.final // "dns-direct"' "$SINGBOX_CONFIG")
-    print_kv "DNS final:" "$dns_final"
+    echo -e "  DNS по умолчанию:  $dns_final"
 
+    # Наборы правил
     local rs_count
     rs_count=$(jq '.route.rule_set | length' "$SINGBOX_CONFIG" 2>/dev/null)
     if [ "$rs_count" -gt 0 ]; then
-        draw_section "Rule-sets"
+        echo ""
+        echo -e "  ${BOLD}Наборы правил${NC}"
+        echo -e "  ──────────────────────────────────────────"
         while IFS= read -r line; do
-            print_note "  $line"
-        done < <(jq -r '.route.rule_set[] | "• \(.tag) [\(.type)]"' "$SINGBOX_CONFIG")
+            echo "   •  $line"
+        done < <(jq -r '.route.rule_set[] | "\(.tag) [\(.type)]"' "$SINGBOX_CONFIG")
     fi
 
-    echo
+    echo ""
 }
 
 # ════════════════════════════════════════════════════════════
@@ -626,7 +659,7 @@ cmd_add_rule() {
     if [ "$rule_type" = "geosite" ]; then
         echo ""
         echo "  Категории geosite:"
-        echo "     1) youtube       9) telegram    17) spotify"
+        echo "     1) youtube      9) telegram    17) spotify"
         echo "     2) google      10) whatsapp    18) twitch"
         echo "     3) facebook    11) tiktok      19) github"
         echo "     4) instagram   12) netflix     20) stackoverflow"
