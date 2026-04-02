@@ -147,12 +147,11 @@ cmd_status() {
         tun_plain="DOWN"
     fi
 
-    echo ""
-    echo -e "Сервис:           $svc_status"
-    echo -e "Версия:           $version"
-    echo -e "TUN:              $tun_iface ($tun_addr)"
-    echo -e "TUN статус:       $tun_status"
-    echo -e "Proxy:            :${proxy_port} (SOCKS5 + HTTP)"
+    echo -e "Сервис:      $svc_status"
+    echo -e "Версия:      $version"
+    echo -e "TUN:         $tun_iface ($tun_addr)"
+    echo -e "TUN статус:  $tun_status"
+    echo -e "Proxy:       :${proxy_port} (SOCKS5 + HTTP)"
     echo ""
 
     draw_section "Серверы и группы"
@@ -947,45 +946,43 @@ main_menu() {
     check_jq
 
     while true; do
-        echo
-        print_note "${CYAN}${BOLD}  sing-box · Управление${NC}"
-        print_note "  ${DIM}$(rule_line '-')${NC}"
+        local svc_label svc_color ver tun_label tun_color
 
-        local svc_label svc_color ver tun_label tun_color status_line
         if systemctl is-active --quiet sing-box 2>/dev/null; then
-            svc_label="active"
-            svc_color="$GREEN"
+            svc_label="active";  svc_color="${GREEN}"
         else
-            svc_label="inactive"
-            svc_color="$RED"
+            svc_label="inactive"; svc_color="${RED}"
         fi
-        ver=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
-        if ip link show tun0 &>/dev/null; then
-            tun_label="UP"
-            tun_color="$GREEN"
-        else
-            tun_label="DOWN"
-            tun_color="$RED"
-        fi
-        print_note "  ${svc_color}●${NC} service: ${svc_label}   ${DIM}|${NC}   version: v${ver}   ${DIM}|${NC}   TUN: ${tun_color}${tun_label}${NC}"
-        print_note "  ${DIM}$(rule_line '-')${NC}"
 
-        echo
-        print_note "  ${BOLD}Просмотр${NC}"
-        print_note "    1) Статус              показать конфигурацию"
-        echo
-        print_note "  ${BOLD}Настройка${NC}"
-        print_note "    2) Добавить сервер     VLESS-подключение"
-        print_note "    3) Создать группу      urltest / selector"
-        print_note "    4) Добавить правило    маршрутизация трафика"
-        print_note "    5) Применить           проверить и перезапустить"
-        echo
-        print_note "  ${BOLD}Очистка${NC}"
-        print_note "    6) Удалить сервер/группу"
-        print_note "    7) Удалить правило"
-        echo
-        print_note "    0) Выход"
-        echo
+        ver=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
+
+        if ip link show tun0 &>/dev/null; then
+            tun_label="UP";   tun_color="${GREEN}"
+        else
+            tun_label="DOWN"; tun_color="${RED}"
+        fi
+
+        echo ""
+        echo -e "  ${CYAN}${BOLD}▌ sing-box · управление${NC}"
+        echo -e "  ────────────────────────────────────────────"
+        echo -e "  ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
+        echo -e "  ────────────────────────────────────────────"
+        echo ""
+        echo -e "  ${BOLD}[просмотр]${NC}"
+        echo "    1  статус"
+        echo ""
+        echo -e "  ${BOLD}[настройка]${NC}"
+        echo "    2  добавить сервер      VLESS"
+        echo "    3  создать группу       urltest / selector"
+        echo "    4  добавить правило     маршрутизация"
+        echo "    5  применить            проверка и перезапуск"
+        echo ""
+        echo -e "  ${BOLD}[удаление]${NC}"
+        echo "    6  удалить сервер/группу"
+        echo "    7  удалить правило"
+        echo ""
+        echo "    0  выход"
+        echo ""
         read -p "  > " choice
 
         case "$choice" in
