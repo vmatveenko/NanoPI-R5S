@@ -11,6 +11,154 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/scripts/singbox-common.sh"
 
+DISABLED_RULES_FILE="/etc/sing-box/disabled-rules.json"
+
+# Инициализация файла отключённых правил
+[ ! -f "$DISABLED_RULES_FILE" ] && echo '{}' > "$DISABLED_RULES_FILE"
+
+# Генерация уникального ключа для правила маршрутизации
+rule_key() {
+    local rule="$1"
+    if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+        echo "rule-set:$(echo "$rule" | jq -r '.rule_set | join(",")')"
+    elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+        echo "domain:$(echo "$rule" | jq -r '.domain | join(",")')"
+    elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+        echo "domain_suffix:$(echo "$rule" | jq -r '.domain_suffix | join(",")')"
+    elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+        echo "domain_keyword:$(echo "$rule" | jq -r '.domain_keyword | join(",")')"
+    elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+        echo "ip_cidr:$(echo "$rule" | jq -r '.ip_cidr | join(",")')"
+    else
+        echo ""
+    fi
+}
+
+# Проверка: отключено ли правило
+is_rule_disabled() {
+    local key="$1"
+    [ -z "$key" ] && return 1
+    jq -e --arg k "$key" 'has($k)' "$DISABLED_RULES_FILE" >/dev/null 2>&1
+}
+
+# ── Глобальные массивы для print_user_rules ──────────────────
+_UR_INDICES=()
+_UR_KEYS=()
+_UR_COUNT=0
+
+print_user_rules() {
+    _UR_INDICES=()
+    _UR_KEYS=()
+    _UR_COUNT=0
+
+    local rules_count ri=1
+    rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
+
+    for ((idx=0; idx<rules_count; idx++)); do
+        local rule action outbound
+        rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
+        action=$(echo "$rule" | jq -r '.action // empty')
+        outbound=$(echo "$rule" | jq -r '.outbound // empty')
+
+        [ -n "$action" ] && [ "$action" != "route" ] && continue
+        echo "$rule" | jq -e '.inbound' >/dev/null 2>&1 && continue
+
+        local label="" mark="" key=""
+        if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+            label="rule-set: $(echo "$rule" | jq -r '.rule_set | join(", ")')"
+        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+            label="domain: $(echo "$rule" | jq -r '.domain | join(", ")')"
+            mark=" [manual]"
+        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+            label="domain_suffix: $(echo "$rule" | jq -r '.domain_suffix | join(", ")')"
+            mark=" [manual]"
+        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+            label="domain_keyword: $(echo "$rule" | jq -r '.domain_keyword | join(", ")')"
+            mark=" [manual]"
+        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+            label="ip_cidr: $(echo "$rule" | jq -r '.ip_cidr | join(", ")')"
+            mark=" [manual]"
+        else
+            label="(другое)"
+        fi
+
+        key=$(rule_key "$rule")
+        _UR_COUNT=$((_UR_COUNT + 1))
+        _UR_INDICES+=("$idx")
+        _UR_KEYS+=("$key")
+
+        if [ -n "$key" ] && is_rule_disabled "$key"; then
+            printf "   %d  %-40s -> %-16s ${RED}[ВЫКЛ]${NC}\n" "$ri" "$label" "$outbound"
+        else
+            printf "   %d  %-40s -> %s%s\n" "$ri" "$label" "$outbound" "$mark"
+        fi
+        ri=$((ri + 1))
+    done
+
+    local final
+    final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
+    printf "   •  %-40s -> %s\n" "final" "$final"
+}
+
+switch_dns_mirror() {
+    local rule="$1" target_server="$2" config="$3"
+    if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+        local rs
+        rs=$(echo "$rule" | jq -r '.rule_set[0]')
+        echo "$config" | jq --arg rs "$rs" --arg srv "$target_server" \
+            '.dns.rules |= map(if .rule_set == [$rs] then .server = $srv else . end)'
+    elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+        local d
+        d=$(echo "$rule" | jq -c '.domain')
+        echo "$config" | jq --argjson d "$d" --arg srv "$target_server" \
+            '.dns.rules |= map(if .domain == $d then .server = $srv else . end)'
+    elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+        local ds
+        ds=$(echo "$rule" | jq -c '.domain_suffix')
+        echo "$config" | jq --argjson ds "$ds" --arg srv "$target_server" \
+            '.dns.rules |= map(if .domain_suffix == $ds then .server = $srv else . end)'
+    elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+        local dk
+        dk=$(echo "$rule" | jq -c '.domain_keyword')
+        echo "$config" | jq --argjson dk "$dk" --arg srv "$target_server" \
+            '.dns.rules |= map(if .domain_keyword == $dk then .server = $srv else . end)'
+    elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+        local ic
+        ic=$(echo "$rule" | jq -c '.ip_cidr')
+        echo "$config" | jq --argjson ic "$ic" --arg srv "$target_server" \
+            '.dns.rules |= map(if .ip_cidr == $ic then .server = $srv else . end)'
+    else
+        echo "$config"
+    fi
+}
+
+delete_dns_mirror() {
+    local rule="$1" config="$2"
+    if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
+        local rs
+        rs=$(echo "$rule" | jq -r '.rule_set[0]')
+        echo "$config" | jq --arg rs "$rs" '.dns.rules |= map(select(.rule_set != [$rs]))'
+    elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
+        local d
+        d=$(echo "$rule" | jq -c '.domain')
+        echo "$config" | jq --argjson d "$d" '.dns.rules |= map(select(.domain != $d))'
+    elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
+        local ds
+        ds=$(echo "$rule" | jq -c '.domain_suffix')
+        echo "$config" | jq --argjson ds "$ds" '.dns.rules |= map(select(.domain_suffix != $ds))'
+    elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
+        local dk
+        dk=$(echo "$rule" | jq -c '.domain_keyword')
+        echo "$config" | jq --argjson dk "$dk" '.dns.rules |= map(select(.domain_keyword != $dk))'
+    elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
+        local ic
+        ic=$(echo "$rule" | jq -c '.ip_cidr')
+        echo "$config" | jq --argjson ic "$ic" '.dns.rules |= map(select(.ip_cidr != $ic))'
+    else
+        echo "$config"
+    fi
+}
+
 # ── UI helpers ───────────────────────────────────────────────
 DIM='\033[2m'
 UI_MIN_WIDTH=64
@@ -236,40 +384,7 @@ cmd_status() {
     echo ""
     echo -e "  ${BOLD}Пользовательские правила${NC}"
     echo -e "  ------------------------------------------------------------------------"
-    for ((idx=0; idx<rules_count; idx++)); do
-        local rule action outbound
-        rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
-        action=$(echo "$rule" | jq -r '.action // empty')
-        outbound=$(echo "$rule" | jq -r '.outbound // empty')
-
-        [ -n "$action" ] && [ "$action" != "route" ] && continue
-        echo "$rule" | jq -e '.inbound' >/dev/null 2>&1 && continue
-
-        local label="" mark=""
-        if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
-            label="rule-set: $(echo "$rule" | jq -r '.rule_set | join(", ")')"
-        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
-            label="domain: $(echo "$rule" | jq -r '.domain | join(", ")')"
-            mark=" [manual]"
-        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
-            label="domain_suffix: $(echo "$rule" | jq -r '.domain_suffix | join(", ")')"
-            mark=" [manual]"
-        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
-            label="domain_keyword: $(echo "$rule" | jq -r '.domain_keyword | join(", ")')"
-            mark=" [manual]"
-        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
-            label="ip_cidr: $(echo "$rule" | jq -r '.ip_cidr | join(", ")')"
-            mark=" [manual]"
-        else
-            label="(другое)"
-        fi
-        printf "   %d  %-40s -> %s%s\n" "$ri" "$label" "$outbound" "$mark"
-        ri=$((ri + 1))
-    done
-
-    local final
-    final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    printf "   %d  %-40s -> %s\n" "$ri" "*final" "$final"
+    print_user_rules
 
     # ── DNS ──
     echo ""
@@ -802,7 +917,221 @@ cmd_add_rule() {
     write_config "$config"
     ok "Правило: $rule_type:$rule_value → $target"
     echo ""
-    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  МАРШРУТИЗАЦИЯ (подменю)
+# ════════════════════════════════════════════════════════════
+cmd_routing() {
+    local changed=0
+
+    while true; do
+        echo ""
+        echo -e "  ${CYAN}${BOLD}▌ Маршрутизация${NC}"
+        echo -e "  ────────────────────────────────────────────"
+
+        print_user_rules
+
+        [ "$_UR_COUNT" -eq 0 ] && echo "   (нет правил)"
+
+        echo ""
+        echo -e "  ${BOLD}[действия]${NC}"
+        echo "    1  добавить правило"
+        echo "    2  удалить"
+        echo "    3  вкл/выкл"
+        echo "    4  переместить"
+        echo "    5  изменить outbound"
+        echo "    0  назад"
+        echo ""
+        read -p "  > " act
+
+        case "$act" in
+        1) # ── Добавить правило ──
+            cmd_add_rule
+            changed=1
+            ;;
+
+        2) # ── Удалить правило ──
+            [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
+            read -p "  Номер (0 — отмена): " num
+            [ "$num" = "0" ] && continue
+            if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
+                err "Неверный номер"; continue
+            fi
+
+            local del_idx="${_UR_INDICES[$((num-1))]}"
+            local del_key="${_UR_KEYS[$((num-1))]}"
+            local del_rule
+            del_rule=$(jq -c ".route.rules[$del_idx]" "$SINGBOX_CONFIG")
+
+            backup_config
+            local config
+            config=$(jq --argjson idx "$del_idx" '.route.rules |= .[:$idx] + .[$idx+1:]' "$SINGBOX_CONFIG")
+            config=$(delete_dns_mirror "$del_rule" "$config")
+
+            if [ -n "$del_key" ] && is_rule_disabled "$del_key"; then
+                jq --arg k "$del_key" 'del(.[$k])' "$DISABLED_RULES_FILE" > "${DISABLED_RULES_FILE}.tmp"
+                mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
+            fi
+
+            write_config "$config"
+            ok "Правило удалено"
+            changed=1
+            ;;
+
+        3) # ── Вкл/выкл ──
+            [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
+            read -p "  Номер (0 — отмена): " num
+            [ "$num" = "0" ] && continue
+            if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
+                err "Неверный номер"; continue
+            fi
+
+            local tog_idx="${_UR_INDICES[$((num-1))]}"
+            local tog_key="${_UR_KEYS[$((num-1))]}"
+            [ -z "$tog_key" ] && { err "Правило без ключа"; continue; }
+
+            local tog_rule
+            tog_rule=$(jq -c ".route.rules[$tog_idx]" "$SINGBOX_CONFIG")
+            local tog_outbound
+            tog_outbound=$(echo "$tog_rule" | jq -r '.outbound')
+
+            backup_config
+            local config
+            config=$(cat "$SINGBOX_CONFIG")
+
+            if is_rule_disabled "$tog_key"; then
+                local orig_outbound
+                orig_outbound=$(jq -r --arg k "$tog_key" '.[$k]' "$DISABLED_RULES_FILE")
+                config=$(echo "$config" | jq --argjson idx "$tog_idx" --arg ob "$orig_outbound" \
+                    '.route.rules[$idx].outbound = $ob')
+                config=$(switch_dns_mirror "$tog_rule" "dns-vpn" "$config")
+                jq --arg k "$tog_key" 'del(.[$k])' "$DISABLED_RULES_FILE" > "${DISABLED_RULES_FILE}.tmp"
+                mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
+                write_config "$config"
+                ok "Включено: $tog_key -> $orig_outbound"
+            else
+                jq --arg k "$tog_key" --arg v "$tog_outbound" '. + {($k): $v}' \
+                    "$DISABLED_RULES_FILE" > "${DISABLED_RULES_FILE}.tmp"
+                mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
+                config=$(echo "$config" | jq --argjson idx "$tog_idx" \
+                    '.route.rules[$idx].outbound = "direct"')
+                config=$(switch_dns_mirror "$tog_rule" "dns-direct" "$config")
+                write_config "$config"
+                ok "Отключено: $tog_key -> direct (было: $tog_outbound)"
+            fi
+            changed=1
+            ;;
+
+        4) # ── Переместить ──
+            [ "$_UR_COUNT" -lt 2 ] && { warn "Недостаточно правил"; continue; }
+            read -p "  Номер правила: " src_num
+            if ! [[ "$src_num" =~ ^[0-9]+$ ]] || [ "$src_num" -lt 1 ] || [ "$src_num" -gt "$_UR_COUNT" ]; then
+                err "Неверный номер"; continue
+            fi
+            read -p "  На позицию (1-${_UR_COUNT}): " tgt_num
+            if ! [[ "$tgt_num" =~ ^[0-9]+$ ]] || [ "$tgt_num" -lt 1 ] || [ "$tgt_num" -gt "$_UR_COUNT" ]; then
+                err "Неверная позиция"; continue
+            fi
+            [ "$src_num" -eq "$tgt_num" ] && { info "Позиция не изменилась"; continue; }
+
+            local src_abs="${_UR_INDICES[$((src_num-1))]}"
+
+            backup_config
+            local config rule_json
+            rule_json=$(jq -c ".route.rules[$src_abs]" "$SINGBOX_CONFIG")
+            config=$(jq --argjson idx "$src_abs" \
+                '.route.rules |= .[:$idx] + .[$idx+1:]' "$SINGBOX_CONFIG")
+
+            local new_count new_ur=0 insert_abs
+            new_count=$(echo "$config" | jq '.route.rules | length')
+            insert_abs=$new_count
+            for ((ni=0; ni<new_count; ni++)); do
+                local nr na
+                nr=$(echo "$config" | jq -c ".route.rules[$ni]")
+                na=$(echo "$nr" | jq -r '.action // empty')
+                [ -n "$na" ] && [ "$na" != "route" ] && continue
+                echo "$nr" | jq -e '.inbound' >/dev/null 2>&1 && continue
+                new_ur=$((new_ur + 1))
+                if [ "$new_ur" -eq "$tgt_num" ]; then
+                    insert_abs=$ni; break
+                fi
+            done
+
+            config=$(echo "$config" | jq --argjson idx "$insert_abs" --argjson rule "$rule_json" \
+                '.route.rules |= .[:$idx] + [$rule] + .[$idx:]')
+            write_config "$config"
+            ok "Правило перемещено на позицию $tgt_num"
+            changed=1
+            ;;
+
+        5) # ── Изменить outbound ──
+            [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
+            read -p "  Номер правила (0 — отмена): " num
+            [ "$num" = "0" ] && continue
+            if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
+                err "Неверный номер"; continue
+            fi
+
+            local edit_idx="${_UR_INDICES[$((num-1))]}"
+            local edit_key="${_UR_KEYS[$((num-1))]}"
+            local edit_rule old_outbound
+            edit_rule=$(jq -c ".route.rules[$edit_idx]" "$SINGBOX_CONFIG")
+            old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
+
+            echo ""
+            echo "  Доступные outbound'ы:"
+            local outbounds oi=1
+            outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
+            declare -a ob_arr=()
+            while IFS= read -r ob; do
+                ob_arr+=("$ob")
+                local ob_type
+                ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+                printf "    %d) [%s] %s\n" "$oi" "$ob_type" "$ob"
+                oi=$((oi + 1))
+            done <<< "$outbounds"
+
+            echo ""
+            read -p "  Новый outbound (номер): " ob_num
+            if ! [[ "$ob_num" =~ ^[0-9]+$ ]] || [ "$ob_num" -lt 1 ] || [ "$ob_num" -gt "${#ob_arr[@]}" ]; then
+                err "Неверный номер"; continue
+            fi
+            local new_outbound="${ob_arr[$((ob_num-1))]}"
+
+            local new_ob_type new_dns_server="dns-vpn"
+            new_ob_type=$(jq -r --arg t "$new_outbound" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+            [ "$new_ob_type" = "direct" ] || [ "$new_ob_type" = "block" ] && new_dns_server="dns-direct"
+
+            backup_config
+
+            if [ -n "$edit_key" ] && is_rule_disabled "$edit_key"; then
+                jq --arg k "$edit_key" --arg v "$new_outbound" '.[$k] = $v' \
+                    "$DISABLED_RULES_FILE" > "${DISABLED_RULES_FILE}.tmp"
+                mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
+                ok "Outbound изменён (при включении будет: $new_outbound)"
+            else
+                local config
+                config=$(cat "$SINGBOX_CONFIG")
+                config=$(echo "$config" | jq --argjson idx "$edit_idx" --arg ob "$new_outbound" \
+                    '.route.rules[$idx].outbound = $ob')
+                config=$(switch_dns_mirror "$edit_rule" "$new_dns_server" "$config")
+                write_config "$config"
+                ok "Outbound: $old_outbound -> $new_outbound"
+            fi
+            changed=1
+            ;;
+
+        0|q|"")
+            if [ "$changed" -eq 1 ]; then
+                echo ""
+                offer_apply_inline
+            fi
+            break
+            ;;
+        *) warn "Неверный выбор" ;;
+        esac
+    done
 }
 
 # ════════════════════════════════════════════════════════════
@@ -889,88 +1218,6 @@ cmd_delete_outbound() {
 }
 
 # ════════════════════════════════════════════════════════════
-#  УДАЛИТЬ ПРАВИЛО
-# ════════════════════════════════════════════════════════════
-cmd_delete_rule() {
-    draw_header "Удалить правило" "$RED"
-
-    local rules_count user_rules=0
-    rules_count=$(jq '.route.rules | length' "$SINGBOX_CONFIG")
-
-    echo ""
-    declare -a rule_indices=()
-    for ((idx=0; idx<rules_count; idx++)); do
-        local rule action outbound
-        rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
-        action=$(echo "$rule" | jq -r '.action // empty')
-        outbound=$(echo "$rule" | jq -r '.outbound // empty')
-
-        [ -n "$action" ] && [ "$action" != "route" ] && continue
-        echo "$rule" | jq -e '.inbound' >/dev/null 2>&1 && continue
-
-        user_rules=$((user_rules + 1))
-        rule_indices+=("$idx")
-        local label=""
-        if echo "$rule" | jq -e '.rule_set' >/dev/null 2>&1; then
-            label="rule-set: $(echo "$rule" | jq -r '.rule_set | join(", ")')"
-        elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
-            label="domain: $(echo "$rule" | jq -r '.domain | join(", ")')"
-        elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
-            label="domain_suffix: $(echo "$rule" | jq -r '.domain_suffix | join(", ")')"
-        elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
-            label="domain_keyword: $(echo "$rule" | jq -r '.domain_keyword | join(", ")')"
-        elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
-            label="ip_cidr: $(echo "$rule" | jq -r '.ip_cidr | join(", ")')"
-        else
-            label="(другое)"
-        fi
-        print_route_rule "$user_rules" "$label" "$outbound"
-    done
-
-    if [ "$user_rules" -eq 0 ]; then
-        warn "Нет пользовательских правил"; return
-    fi
-
-    echo ""
-    read -p "  Номер для удаления (0 — отмена): " num
-    [ "$num" = "0" ] && return
-    if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$user_rules" ]; then
-        err "Неверный номер"; return
-    fi
-
-    local del_idx="${rule_indices[$((num-1))]}"
-    local del_rule
-    del_rule=$(jq -c ".route.rules[$del_idx]" "$SINGBOX_CONFIG")
-    echo ""
-    read -p "  Удалить это правило? [y/N]: " confirm
-    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
-
-    backup_config
-    local config
-    config=$(jq --argjson idx "$del_idx" '.route.rules |= .[:$idx] + .[$idx+1:]' "$SINGBOX_CONFIG")
-
-    # Удалить зеркальное DNS-правило
-    if echo "$del_rule" | jq -e '.rule_set' >/dev/null 2>&1; then
-        local rs
-        rs=$(echo "$del_rule" | jq -r '.rule_set[0]')
-        config=$(echo "$config" | jq --arg rs "$rs" '.dns.rules |= map(select(.rule_set != [$rs]))')
-    elif echo "$del_rule" | jq -e '.domain' >/dev/null 2>&1; then
-        local d
-        d=$(echo "$del_rule" | jq -c '.domain')
-        config=$(echo "$config" | jq --argjson d "$d" '.dns.rules |= map(select(.domain != $d))')
-    elif echo "$del_rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
-        local ds
-        ds=$(echo "$del_rule" | jq -c '.domain_suffix')
-        config=$(echo "$config" | jq --argjson ds "$ds" '.dns.rules |= map(select(.domain_suffix != $ds))')
-    fi
-
-    write_config "$config"
-    ok "Правило удалено"
-    echo ""
-    offer_apply_inline
-}
-
-# ════════════════════════════════════════════════════════════
 #  ГЛАВНОЕ МЕНЮ
 # ════════════════════════════════════════════════════════════
 main_menu() {
@@ -997,24 +1244,23 @@ main_menu() {
 
         echo ""
         echo -e "  ${CYAN}${BOLD}▌ sing-box · управление${NC}"
-        echo -e "  ──────────────────────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------""
         echo -e "  ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
-        echo -e "  ──────────────────────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------""
         echo ""
         echo -e "  ${BOLD}[просмотр]${NC}"
         echo "    1  Статус"
         echo ""
         echo -e "  ${BOLD}[настройка]${NC}"
-        echo "    2  Добавить сервер      VLESS"
-        echo "    3  Создать группу       urltest / selector"
-        echo "    4  Добавить правило     маршрутизация"
-        echo "    5  Применить            проверка и перезапуск"
+        echo "    2  добавить сервер      VLESS"
+        echo "    3  создать группу       urltest / selector"
+        echo "    4  маршрутизация        правила трафика"
+        echo "    5  применить            проверка и перезапуск"
         echo ""
         echo -e "  ${BOLD}[удаление]${NC}"
-        echo "    6  Удалить сервер/группу"
-        echo "    7  Удалить правило"
+        echo "    6  удалить сервер/группу"
         echo ""
-        echo "    0  Выход"
+        echo "    0  выход"
         echo ""
         read -p "  > " choice
 
@@ -1022,10 +1268,9 @@ main_menu() {
             1) cmd_status ;;
             2) cmd_add_vless ;;
             3) cmd_add_group ;;
-            4) cmd_add_rule ;;
+            4) cmd_routing ;;
             5) cmd_apply ;;
             6) cmd_delete_outbound ;;
-            7) cmd_delete_rule ;;
             0|q|"") echo ""; break ;;
             *) warn "Неверный выбор" ;;
         esac
