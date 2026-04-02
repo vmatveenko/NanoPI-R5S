@@ -97,7 +97,7 @@ print_user_rules() {
 
     local final
     final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    printf "   •  %-40s -> %s\n" "final" "$final"
+    printf "   •  %-40s -> %s\n" "*final" "$final"
 }
 
 switch_dns_mirror() {
@@ -935,7 +935,7 @@ cmd_routing() {
         [ "$_UR_COUNT" -eq 0 ] && echo "   (нет правил)"
 
         echo ""
-        echo -e "  ${YELLOW}${BOLD}[действия]${NC}"
+        echo -e "  ${YELLOW}${BOLD}[Действия]${NC}"
         echo "    1  Добавить правило     2  Изменить правило     3  Удалить правило"
         echo "    4  Изменить активность  5  Переместить правило  0  Назад"
         echo ""
