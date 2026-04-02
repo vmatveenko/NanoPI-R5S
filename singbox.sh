@@ -936,12 +936,8 @@ cmd_routing() {
 
         echo ""
         echo -e "  ${BOLD}[действия]${NC}"
-        echo "    1  добавить правило"
-        echo "    2  удалить"
-        echo "    3  вкл/выкл"
-        echo "    4  переместить"
-        echo "    5  изменить outbound"
-        echo "    0  назад"
+        echo "    1  Добавить правило     2  Изменить правило     3  Удалить правило"
+        echo "    4  Изменить активность  5  Переместить правило  0  Назад"
         echo ""
         read -p "  > " act
 
@@ -951,7 +947,7 @@ cmd_routing() {
             changed=1
             ;;
 
-        2) # ── Удалить правило ──
+        3) # ── Удалить правило ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
             read -p "  Номер (0 — отмена): " num
             [ "$num" = "0" ] && continue
@@ -979,7 +975,7 @@ cmd_routing() {
             changed=1
             ;;
 
-        3) # ── Вкл/выкл ──
+        4) # ── Вкл/выкл ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
             read -p "  Номер (0 — отмена): " num
             [ "$num" = "0" ] && continue
@@ -1023,7 +1019,7 @@ cmd_routing() {
             changed=1
             ;;
 
-        4) # ── Переместить ──
+        5) # ── Переместить ──
             [ "$_UR_COUNT" -lt 2 ] && { warn "Недостаточно правил"; continue; }
             read -p "  Номер правила: " src_num
             if ! [[ "$src_num" =~ ^[0-9]+$ ]] || [ "$src_num" -lt 1 ] || [ "$src_num" -gt "$_UR_COUNT" ]; then
@@ -1065,7 +1061,7 @@ cmd_routing() {
             changed=1
             ;;
 
-        5) # ── Изменить outbound ──
+        2) # ── Изменить outbound ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
             read -p "  Номер правила (0 — отмена): " num
             [ "$num" = "0" ] && continue
@@ -1244,23 +1240,23 @@ main_menu() {
 
         echo ""
         echo -e "  ${CYAN}${BOLD}▌ sing-box · управление${NC}"
-        echo -e "  ────────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------"
         echo -e "  ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
-        echo -e "  ────────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------"
         echo ""
         echo -e "  ${BOLD}[просмотр]${NC}"
         echo "    1  Статус"
         echo ""
         echo -e "  ${BOLD}[настройка]${NC}"
-        echo "    2  добавить сервер      VLESS"
-        echo "    3  создать группу       urltest / selector"
-        echo "    4  маршрутизация        правила трафика"
-        echo "    5  применить            проверка и перезапуск"
+        echo "    2  Добавить сервер      VLESS"
+        echo "    3  Создать группу       urltest / selector"
+        echo "    4  Маршрутизация        правила трафика"
+        echo "    5  Применить            проверка и перезапуск"
         echo ""
         echo -e "  ${BOLD}[удаление]${NC}"
-        echo "    6  удалить сервер/группу"
+        echo "    6  Удалить сервер/группу"
         echo ""
-        echo "    0  выход"
+        echo "    0  Выход"
         echo ""
         read -p "  > " choice
 
