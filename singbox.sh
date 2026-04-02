@@ -117,7 +117,7 @@ urldecode() {
 cmd_status() {
     echo ""
     echo -e "  ${CYAN}${BOLD}▌ Статус${NC}"
-    echo -e "  ────────────────────────────────────────────"
+    echo -e "  ------------------------------------------------------------------------"
 
     local version
     version=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
@@ -149,7 +149,7 @@ cmd_status() {
     # ── Серверы (vless) ──
     echo ""
     echo -e "  ${BOLD}Серверы${NC}"
-    echo -e "  ──────────────────────────────────────────"
+    echo -e "  ------------------------------------------------------------------------"
     local ob_count si=1
     ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
     for ((oi=0; oi<ob_count; oi++)); do
@@ -175,7 +175,7 @@ cmd_status() {
     if [ "$has_groups" -eq 1 ]; then
         echo ""
         echo -e "  ${BOLD}Группы${NC}"
-        echo -e "  ──────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------------"
         local gi=1
         for ((oi=0; oi<ob_count; oi++)); do
             local ob_type ob_tag ob_members
@@ -191,13 +191,13 @@ cmd_status() {
     # ── Служебные outbound'ы ──
     echo ""
     echo -e "  ${BOLD}Служебные outbound'ы${NC}"
-    echo -e "  ──────────────────────────────────────────"
+    echo -e "  ------------------------------------------------------------------------"
     for ((oi=0; oi<ob_count; oi++)); do
         local ob_type ob_tag
         ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
         ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
         case "$ob_type" in
-            direct|block|dns) printf "   •  [%-10s]  %s\n" "$ob_type" "$ob_tag" ;;
+            direct|block|dns) printf "   •  [%s]  %s\n" "$ob_type" "$ob_tag" ;;
         esac
     done
 
@@ -208,7 +208,7 @@ cmd_status() {
     # Системные правила
     echo ""
     echo -e "  ${BOLD}Системные правила${NC}"
-    echo -e "  ──────────────────────────────────────────"
+    echo -e "  ------------------------------------------------------------------------"
     for ((idx=0; idx<rules_count; idx++)); do
         local rule action outbound
         rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
@@ -235,7 +235,7 @@ cmd_status() {
     # Пользовательские правила
     echo ""
     echo -e "  ${BOLD}Пользовательские правила${NC}"
-    echo -e "  ──────────────────────────────────────────"
+    echo -e "  ------------------------------------------------------------------------"
     for ((idx=0; idx<rules_count; idx++)); do
         local rule action outbound
         rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
@@ -269,12 +269,12 @@ cmd_status() {
 
     local final
     final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    printf "   %d  %-40s -> %s\n" "$ri" "final" "$final"
+    printf "   %d  %-40s -> %s\n" "$ri" "*final" "$final"
 
     # ── DNS ──
     echo ""
     echo -e "  ${BOLD}DNS${NC}"
-    echo -e "  ──────────────────────────────────────────"
+    echo -e "  ------------------------------------------------------------------------"
     local dns_servers_count
     dns_servers_count=$(jq '.dns.servers | length' "$SINGBOX_CONFIG" 2>/dev/null)
     for ((di=0; di<dns_servers_count; di++)); do
@@ -297,7 +297,7 @@ cmd_status() {
     if [ "$dns_rules_count" -gt 0 ]; then
         echo ""
         echo -e "  ${BOLD}DNS-правила${NC}"
-        echo -e "  ──────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------------"
         for ((idx=0; idx<dns_rules_count; idx++)); do
             local dr server left
             dr=$(jq -c ".dns.rules[$idx]" "$SINGBOX_CONFIG")
@@ -326,7 +326,7 @@ cmd_status() {
     if [ "$rs_count" -gt 0 ]; then
         echo ""
         echo -e "  ${BOLD}Наборы правил${NC}"
-        echo -e "  ──────────────────────────────────────────"
+        echo -e "  ------------------------------------------------------------------------"
         while IFS= read -r line; do
             echo "   •  $line"
         done < <(jq -r '.route.rule_set[] | "\(.tag) [\(.type)]"' "$SINGBOX_CONFIG")
