@@ -148,11 +148,11 @@ cmd_status() {
     fi
 
     echo ""
-    echo "  Сервис:           $svc_status"
-    echo "  Версия:           $version"
-    echo "  TUN:              $tun_iface ($tun_addr)"
-    echo "  TUN статус:       $tun_status"
-    echo "  Proxy:            :${proxy_port} (SOCKS5 + HTTP)"
+    echo -e "${CYAN}  Сервис:           $svc_status${NC}"
+    echo -e "${CYAN}  Версия:           $version${NC}"
+    echo -e "${CYAN}  TUN:              $tun_iface ($tun_addr)${NC}"
+    echo -e "${CYAN}  TUN статус:       $tun_status${NC}"
+    echo -e "${CYAN}  Proxy:            :${proxy_port} (SOCKS5 + HTTP)${NC}"
     echo ""
 
     draw_section "Серверы и группы"
