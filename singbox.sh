@@ -115,7 +115,12 @@ urldecode() {
 #  СТАТУС
 # ════════════════════════════════════════════════════════════
 cmd_status() {
-    draw_header "Статус"
+
+    echo ""
+    echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}${BOLD}║                     Статус                   ║${NC}"
+    echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
+    echo ""
 
     local version
     version=$("$SINGBOX_BIN" version 2>/dev/null | head -1 | awk '{print $NF}' || echo "?")
@@ -142,11 +147,13 @@ cmd_status() {
         tun_plain="DOWN"
     fi
 
-    print_kv "Сервис:" "$svc_status"
-    print_kv "Версия:" "$version"
-    print_kv "TUN:" "$(truncate_text "$tun_iface ($tun_addr)" 60)"
-    print_kv "TUN статус:" "$tun_status"
-    print_kv "Proxy:" ":${proxy_port} (SOCKS5 + HTTP)"
+    echo ""
+    echo "  Сервис:           $svc_status"
+    echo "  Версия:           $version"
+    echo "  TUN:              $tun_iface ($tun_addr)"
+    echo "  TUN статус:       $tun_status"
+    echo "  Proxy:            :${proxy_port} (SOCKS5 + HTTP)"
+    echo ""
 
     draw_section "Серверы и группы"
 
