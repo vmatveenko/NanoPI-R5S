@@ -1107,6 +1107,7 @@ cmd_routing() {
                 jq --arg k "$edit_key" --arg v "$new_outbound" '.[$k] = $v' \
                     "$DISABLED_RULES_FILE" > "${DISABLED_RULES_FILE}.tmp"
                 mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
+                echo ""
                 ok "Outbound изменён (при включении будет: $new_outbound)"
             else
                 local config
@@ -1241,10 +1242,9 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  ${GREEN}${BOLD}▌ Sing-box · управление${NC}"
-        echo -e "  $--------------------------------------------------------"
+        echo -e "  ${BLUE}${BOLD}▌ Sing-box · управление${NC}"
+        echo -e "  ${BLUE}--------------------------------------------------------${NC}"
         echo -e "   ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
-        echo -e "  $--------------------------------------------------------"
         echo ""
         echo -e "  ${YELLOW}${BOLD}[Просмотр]${NC}"
         echo "    1  Статус"
