@@ -1242,7 +1242,7 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  ${BLUE}${BOLD}▌ Sing-box · управление${NC}"
+        echo -e "  ${DARKGREENBG}${BOLD}▌ Sing-box · управление${NC}"
         echo -e "  ${BLUE}--------------------------------------------------------${NC}"
         echo -e "   ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
         echo ""
