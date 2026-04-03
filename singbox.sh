@@ -1243,7 +1243,7 @@ main_menu() {
         echo ""
         echo -e "  \033[96mSing-box управление\033[0m"
         echo -e "  \033[90m--------------------------------------------------------\033[0m"
-        echo -e "   ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
+        echo -e "   \033[37m●${NC} service: \033[92m${svc_label}\033[37m   |   version: v${ver}   |   TUN: \033[92m${tun_label}\033[0m"
         echo ""
         echo -e "  ${YELLOW}${BOLD}[Просмотр]${NC}"
         echo "    1  Статус"
