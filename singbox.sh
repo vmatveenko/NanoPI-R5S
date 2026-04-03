@@ -1241,7 +1241,7 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  ${DARKGREENBG}${BOLD} Sing-box · управление                          ${NC}"
+        echo -e "  ${DARKGREENBG}${BOLD} Sing-box · управление                              ${NC}"
         echo -e "  --------------------------------------------------------"
         echo -e "   ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
         echo ""
