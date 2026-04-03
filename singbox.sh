@@ -1064,10 +1064,11 @@ cmd_routing() {
 
         2) # ── Изменить outbound ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
+            echo ""
             read -p "  Выберите номер правила: " num
             [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
-                err "Неверный номер"; continue
+                continue
             fi
 
             local edit_idx="${_UR_INDICES[$((num-1))]}"
@@ -1076,7 +1077,7 @@ cmd_routing() {
             edit_rule=$(jq -c ".route.rules[$edit_idx]" "$SINGBOX_CONFIG")
             old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
             echo ""
-            echo "  ${GREEN}> Доступные outbound-подключения${NC}"
+            echo -e "  ${GREEN}> Доступные outbound-подключения${NC}"
             echo "  ------------------------------------------------------------------------"
             local outbounds oi=1
             outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
