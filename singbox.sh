@@ -971,6 +971,7 @@ cmd_routing() {
             fi
 
             write_config "$config"
+            echo ""
             ok "Правило удалено"
             changed=1
             ;;
@@ -1063,7 +1064,7 @@ cmd_routing() {
 
         2) # ── Изменить outbound ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
-            read -p "  Номер правила (0 — отмена): " num
+            read -p "  Выберите номер правила: " num
             [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
                 err "Неверный номер"; continue
@@ -1074,9 +1075,9 @@ cmd_routing() {
             local edit_rule old_outbound
             edit_rule=$(jq -c ".route.rules[$edit_idx]" "$SINGBOX_CONFIG")
             old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
-
             echo ""
-            echo "  Доступные outbound'ы:"
+            echo "  ${GREEN}> Доступные outbound-подключения${NC}"
+            echo "  ------------------------------------------------------------------------"
             local outbounds oi=1
             outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
             declare -a ob_arr=()
@@ -1084,12 +1085,12 @@ cmd_routing() {
                 ob_arr+=("$ob")
                 local ob_type
                 ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
-                printf "    %d) [%s] %s\n" "$oi" "$ob_type" "$ob"
+                printf "    %d [%s] %s\n" "$oi" "$ob_type" "$ob"
                 oi=$((oi + 1))
             done <<< "$outbounds"
 
             echo ""
-            read -p "  Новый outbound (номер): " ob_num
+            read -p "  Выберите подключение: " ob_num
             if ! [[ "$ob_num" =~ ^[0-9]+$ ]] || [ "$ob_num" -lt 1 ] || [ "$ob_num" -gt "${#ob_arr[@]}" ]; then
                 err "Неверный номер"; continue
             fi
@@ -1239,9 +1240,10 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  ${BLUE}${BOLD}▌ Sing-box · управление${NC}"
-        echo -e "  ${BLUE}--------------------------------------------------------${NC}"
+        echo -e "  ${GREEN}${BOLD}▌ Sing-box · управление${NC}"
+        echo -e "  $--------------------------------------------------------"
         echo -e "   ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
+        echo -e "  $--------------------------------------------------------"
         echo ""
         echo -e "  ${YELLOW}${BOLD}[Просмотр]${NC}"
         echo "    1  Статус"
