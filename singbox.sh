@@ -1078,7 +1078,6 @@ cmd_routing() {
             old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
             echo ""
             echo -e "  ${GREEN}> Доступные outbound-подключения${NC}"
-            echo "  ------------------------------------------------------------------------"
             local outbounds oi=1
             outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
             declare -a ob_arr=()
@@ -1091,7 +1090,7 @@ cmd_routing() {
             done <<< "$outbounds"
 
             echo ""
-            read -p "  Выберите подключение: " ob_num
+            read -p "  > " ob_num
             if ! [[ "$ob_num" =~ ^[0-9]+$ ]] || [ "$ob_num" -lt 1 ] || [ "$ob_num" -gt "${#ob_arr[@]}" ]; then
                 err "Неверный номер"; continue
             fi
@@ -1242,7 +1241,7 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  ${DARKGREENBG}${BOLD} Sing-box · управление                   ${NC}"
+        echo -e "  ${DARKGREENBG}${BOLD} Sing-box · управление                          ${NC}"
         echo -e "  --------------------------------------------------------"
         echo -e "   ${svc_color}●${NC} service: ${svc_label}   |   version: v${ver}   |   TUN: ${tun_color}${tun_label}${NC}"
         echo ""
