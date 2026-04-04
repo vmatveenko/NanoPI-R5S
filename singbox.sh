@@ -846,10 +846,10 @@ cmd_add_rule() {
     else
         echo ""
         case "$rule_type" in
-            domain)         read -p "  Домен: " rule_value;;
-            domain_suffix)  read -p "  Суффикс: " rule_value;;
-            domain_keyword) read -p "  Ключевое слово: " rule_value;;
-            ip_cidr)        read -p "  IP/CIDR: " rule_value;;
+            domain)         read -p "  Домен — полное совпадение имени (напр. youtube.com): " rule_value;;
+            domain_suffix)  read -p "  Суффикс — хост оканчивается на него, со всех поддоменов (напр. google.com): " rule_value;;
+            domain_keyword) read -p "  Ключевое слово — если оно есть в имени хоста (напр. google): " rule_value;;
+            ip_cidr)        read -p "  IP или подсеть в нотации CIDR (напр. 192.168.1.0/24 или 10.0.0.5): " rule_value;;
         esac
     fi
     [ -z "$rule_value" ] && { err "Значение пусто"; return; }
