@@ -241,7 +241,7 @@ print_vless_servers_list() {
         [ "$ob_type" != "vless" ] && continue
         ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
         ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
-        printf "    %d  [vless]       %s → %s:%s\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
+        printf "    ${WHITE}%d  [vless]       %s → %s:%s${RESET}\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
         [ -n "${1:-}" ] && _vl_tags_ref+=("$ob_tag")
         si=$((si + 1))
     done
@@ -661,8 +661,8 @@ cmd_add_group() {
 
     echo ""
     echo -e "  ${CYAN}Тип группы:${RESET}"
-    echo -e "    1 ${WHITE}urltest   — автовыбор лучшего + failover${RESET}"
-    echo -e "    2 ${WHITE}selector  — ручной выбор${RESET}"
+    echo -e "    ${WHITE}1 urltest   — автовыбор лучшего + failover${RESET}"
+    echo -e "    ${WHITE}2 selector  — ручной выбор${RESET}"
     echo ""
     read -p "  Выбор (Enter — отмена): " type_ch
     [ -z "$type_ch" ] && return
@@ -670,8 +670,8 @@ cmd_add_group() {
     case "$type_ch" in 1) group_type="urltest";; 2) group_type="selector";; *) err "Неверно"; return;; esac
 
     echo ""
-    echo "  Номера серверов через пробел или 'all':"
-    read -p "  Выбор [all]: " sel; sel=${sel:-all}
+    read -p "  Укажите номера серверов через пробел (Enter — все серверы): " sel
+    sel=${sel:-all}
     declare -a selected=()
     if [ "$sel" = "all" ]; then
         selected=("${tag_arr[@]}")
