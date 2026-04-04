@@ -1167,6 +1167,7 @@ cmd_apply() {
 offer_apply_inline() {
     read -p "  Применить сейчас? [Y/n]: " a; a=${a:-Y}
     if [[ "$a" =~ ^[Yy]$ ]]; then
+        echo ""
         apply_config
     else
         info "Для применения: выберите пункт 5 в меню"
