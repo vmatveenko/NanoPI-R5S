@@ -19,10 +19,10 @@ RED="\033[0;31m"       # ошибка / критично
 RESET="\033[0m"
 BOLD='\033[1m'
 
-info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
-ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-err()   { echo -e "${RED}[ERR ]${NC}  $*"; }
+info()  { echo -e " ${CYAN}[INFO]${RESET}  ${WHITE}$*${RESET}"; }
+ok()    { echo -e " ${GREEN}[ OK ]${RESET}  ${WHITE}$*${RESET}"; }
+warn()  { echo -e " ${YELLOW}[WARNING]${RESET}  ${WHITE}$*${RESET}"; }
+err()   { echo -e " ${RED}[ERROR]${RESET}  ${WHITE}$*${RESET}"; }
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
