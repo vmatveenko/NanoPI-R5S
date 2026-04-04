@@ -840,7 +840,7 @@ cmd_add_rule() {
 
     # Выбор outbound
     echo ""
-    echo "  Доступные outbound'ы:"
+    echo -e "  ${GREEN}Доступные outbound-подключения:${RESET}"
     local outbounds i=1
     outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
     declare -a ob_arr=()
@@ -848,7 +848,7 @@ cmd_add_rule() {
         ob_arr+=("$ob")
         local ob_type
         ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
-        printf "    %d) [%-10s] %s\n" "$i" "$ob_type" "$(truncate_text "$ob" 48)"
+        printf "    ${WHITE}%d  [%s] %s${RESET}\n" "$oi" "$ob_type" "$ob"
         i=$((i + 1))
     done <<< "$outbounds"
     echo ""
@@ -1080,7 +1080,7 @@ cmd_routing() {
             edit_rule=$(jq -c ".route.rules[$edit_idx]" "$SINGBOX_CONFIG")
             old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
             echo ""
-            echo -e "  ${GREEN}Доступные outbound-подключения${RESET}"
+            echo -e "  ${GREEN}Доступные outbound-подключения:${RESET}"
             local outbounds oi=1
             outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
             declare -a ob_arr=()
