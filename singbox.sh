@@ -776,19 +776,19 @@ cmd_add_rule() {
 
     if [ "$rule_type" = "geosite" ]; then
         echo ""
-        echo "  Категории geosite:"
-        echo "     1) youtube      9) telegram    17) spotify"
-        echo "     2) google      10) whatsapp    18) twitch"
-        echo "     3) facebook    11) tiktok      19) github"
-        echo "     4) instagram   12) netflix     20) stackoverflow"
-        echo "     5) twitter     13) openai      21) reddit"
-        echo "     6) amazon      14) discord     22) linkedin"
-        echo "     7) microsoft   15) steam       23) wikipedia"
-        echo "     8) apple       16) paypal      24) другое (ввести вручную)"
+        echo -e "  ${CYAN}Категории geosite:${RESET}"
+        echo -e "     ${WHITE}1 youtube      9 telegram    17 spotify${RESET}"
+        echo -e "     ${WHITE}2 google      10 whatsapp    18 twitch${RESET}"
+        echo -e "     ${WHITE}3 facebook    11 tiktok      19 github${RESET}"
+        echo -e "     ${WHITE}4 instagram   12 netflix     20 stackoverflow${RESET}"
+        echo -e "     ${WHITE}5 twitter     13 openai      21 reddit${RESET}"
+        echo -e "     ${WHITE}6 amazon      14 discord     22 linkedin${RESET}"
+        echo -e "     ${WHITE}7 microsoft   15 steam       23 wikipedia${RESET}"
+        echo -e "     ${WHITE}8 apple       16 paypal      24 другое (ввести вручную)${RESET}"
         echo ""
         echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite/tree/rule-set${RESET}"
         echo ""
-        read -p "  Выбор [24]: " gc; gc=${gc:-24}
+        read -p "  > " gc; gc=${gc:-24}
         case "$gc" in
             1)  rule_value="youtube";;       2)  rule_value="google";;
             3)  rule_value="facebook";;      4)  rule_value="instagram";;
