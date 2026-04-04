@@ -852,7 +852,7 @@ cmd_add_rule() {
             ip_cidr)        read -p "  ${WHITE}IP или подсеть в нотации CIDR (напр. 192.168.1.0/24 или 10.0.0.5):${RESET} " rule_value;;
         esac
     fi
-    [ -z "$rule_value" ] && { err "Значение пусто"; return; }
+    [ -z "$rule_value" ] && return
 
     # Выбор outbound
     echo ""
