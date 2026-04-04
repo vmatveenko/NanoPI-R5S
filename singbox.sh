@@ -1229,6 +1229,23 @@ cmd_delete_outbound() {
 }
 
 # ════════════════════════════════════════════════════════════
+#  ОБНОВЛЕНИЕ СКРИПТОВ
+# ════════════════════════════════════════════════════════════
+cmd_update_scripts() {
+    local repo_dir="$HOME/nanopi-router"
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Обновление скриптов из Git...${RESET}"
+    echo ""
+    cd "$repo_dir" || { err "Каталог $repo_dir не найден"; return; }
+    git reset --hard
+    git pull
+    chmod +x scripts/*.sh *.sh
+    echo ""
+    ok "Скрипты обновлены. Перезапуск..."
+    exec sudo "$repo_dir/singbox.sh"
+}
+
+# ════════════════════════════════════════════════════════════
 #  ГЛАВНОЕ МЕНЮ
 # ════════════════════════════════════════════════════════════
 main_menu() {
@@ -1270,6 +1287,9 @@ main_menu() {
         echo -e "  ${CYAN}[Удаление]${RESET}"
         echo -e "    ${WHITE}6  Удалить сервер/группу${RESET}"
         echo ""
+        echo -e "  ${CYAN}[Другое]${RESET}"
+        echo -e "    ${WHITE}7  Обновить скрипты${RESET}"
+        echo ""
         echo -e "    ${WHITE}0  Выход${RESET}"
         echo ""
         read -p "  > " choice
@@ -1281,6 +1301,7 @@ main_menu() {
             4) cmd_routing ;;
             5) cmd_apply ;;
             6) cmd_delete_outbound ;;
+            7) cmd_update_scripts ;;
             0|q|"") echo ""; break ;;
             *) warn "Неверный выбор" ;;
         esac
