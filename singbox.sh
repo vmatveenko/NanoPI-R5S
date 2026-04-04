@@ -663,6 +663,7 @@ cmd_add_group() {
     echo -e "  ${CYAN}Тип группы:${RESET}"
     echo -e "    1 ${WHITE}urltest   — автовыбор лучшего + failover${RESET}"
     echo -e "    2 ${WHITE}selector  — ручной выбор${RESET}"
+    echo ""
     read -p "  Выбор (Enter — отмена): " type_ch
     [ -z "$type_ch" ] && return
     local group_type
