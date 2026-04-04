@@ -7,14 +7,17 @@ SINGBOX_CONFIG="/etc/sing-box/config.json"
 SINGBOX_BACKUP_DIR="/root/singbox-backup"
 SINGBOX_BIN="/usr/local/bin/sing-box"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+
 CYAN='\033[0;36m'
-BOLD='\033[1m'
+
 NC='\033[0m'
-BLUE='\033[94m'
-DARKGREENBG='\033[42;90m'
+
+GREEN="\033[0;32m"     # лейблы / норм
+WHITE="\033[1;37m"     # значения
+YELLOW="\033[0;33m"    # предупреждение
+RED="\033[0;31m"       # ошибка / критично
+RESET="\033[0m"
+BOLD='\033[1m'
 
 info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }

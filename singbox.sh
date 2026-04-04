@@ -88,7 +88,7 @@ print_user_rules() {
         _UR_KEYS+=("$key")
 
         if [ -n "$key" ] && is_rule_disabled "$key"; then
-            printf "   %d  %-40s -> %-16s ${RED}[ВЫКЛ]${NC}\n" "$ri" "$label" "$outbound"
+            printf "   %d  %-40s -> %-16s ${RED}[ВЫКЛ]${RESET}\n" "$ri" "$label" "$outbound"
         else
             printf "   %d  %-40s -> %s%s\n" "$ri" "$label" "$outbound" "$mark"
         fi
@@ -242,18 +242,18 @@ print_route_rule() {
 draw_header() {
     local title="$1" color="${2:-$CYAN}"
     echo
-    print_note "${color}${BOLD}▌ ${title}${NC}"
-    print_note "${color}$(rule_line '=')${NC}"
+    print_note "${color}${BOLD}▌ ${title}${RESET}"
+    print_note "${color}$(rule_line '=')${RESET}"
 }
 
 draw_section() {
     echo
-    print_note "${BOLD}$1${NC}"
-    print_note "${DIM}$(rule_line '-')${NC}"
+    print_note "${BOLD}$1${RESET}"
+    print_note "${DIM}$(rule_line '-')${RESET}"
 }
 
 separator() {
-    print_note "${DIM}$(rule_line '.')${NC}"
+    print_note "${DIM}$(rule_line '.')${RESET}"
 }
 
 urldecode() {
@@ -264,7 +264,7 @@ urldecode() {
 # ════════════════════════════════════════════════════════════
 cmd_status() {
     echo ""
-    echo -e "  ${CYAN}${BOLD}▌ Статус${NC}"
+    echo -e "  ${CYAN}${BOLD}▌ Статус${RESET}"
     echo -e "  ------------------------------------------------------------------------"
 
     local version
@@ -272,9 +272,9 @@ cmd_status() {
 
     local svc_status
     if systemctl is-active --quiet sing-box 2>/dev/null; then
-        svc_status="${GREEN}active${NC}"
+        svc_status="${GREEN}active${RESET}"
     else
-        svc_status="${RED}inactive${NC}"
+        svc_status="${RED}inactive${RESET}"
     fi
 
     local tun_iface tun_addr proxy_port tun_status
@@ -283,9 +283,9 @@ cmd_status() {
     proxy_port=$(jq -r '.inbounds[] | select(.type == "mixed") | .listen_port // "?"' "$SINGBOX_CONFIG" 2>/dev/null)
 
     if ip link show "$tun_iface" &>/dev/null; then
-        tun_status="${GREEN}UP${NC}"
+        tun_status="${GREEN}UP${RESET}"
     else
-        tun_status="${RED}DOWN${NC}"
+        tun_status="${RED}DOWN${RESET}"
     fi
 
     echo -e "  Сервис:           $svc_status"
@@ -296,7 +296,7 @@ cmd_status() {
 
     # ── Серверы (vless) ──
     echo ""
-    echo -e "  ${BOLD}Серверы${NC}"
+    echo -e "  ${BOLD}Серверы${RESET}"
     echo -e "  ------------------------------------------------------------------------"
     local ob_count si=1
     ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
@@ -322,7 +322,7 @@ cmd_status() {
     done
     if [ "$has_groups" -eq 1 ]; then
         echo ""
-        echo -e "  ${BOLD}Группы${NC}"
+        echo -e "  ${BOLD}Группы${RESET}"
         echo -e "  ------------------------------------------------------------------------"
         local gi=1
         for ((oi=0; oi<ob_count; oi++)); do
@@ -338,7 +338,7 @@ cmd_status() {
 
     # ── Служебные outbound'ы ──
     echo ""
-    echo -e "  ${BOLD}Служебные outbound'ы${NC}"
+    echo -e "  ${BOLD}Служебные outbound'ы${RESET}"
     echo -e "  ------------------------------------------------------------------------"
     for ((oi=0; oi<ob_count; oi++)); do
         local ob_type ob_tag
@@ -355,7 +355,7 @@ cmd_status() {
 
     # Системные правила
     echo ""
-    echo -e "  ${BOLD}Системные правила${NC}"
+    echo -e "  ${BOLD}Системные правила${RESET}"
     echo -e "  ------------------------------------------------------------------------"
     for ((idx=0; idx<rules_count; idx++)); do
         local rule action outbound
@@ -382,13 +382,13 @@ cmd_status() {
 
     # Пользовательские правила
     echo ""
-    echo -e "  ${BOLD}Пользовательские правила${NC}"
+    echo -e "  ${BOLD}Пользовательские правила${RESET}"
     echo -e "  ------------------------------------------------------------------------"
     print_user_rules
 
     # ── DNS ──
     echo ""
-    echo -e "  ${BOLD}DNS${NC}"
+    echo -e "  ${BOLD}DNS${RESET}"
     echo -e "  ------------------------------------------------------------------------"
     local dns_servers_count
     dns_servers_count=$(jq '.dns.servers | length' "$SINGBOX_CONFIG" 2>/dev/null)
@@ -411,7 +411,7 @@ cmd_status() {
     dns_rules_count=$(jq '.dns.rules | length' "$SINGBOX_CONFIG" 2>/dev/null)
     if [ "$dns_rules_count" -gt 0 ]; then
         echo ""
-        echo -e "  ${BOLD}DNS-правила${NC}"
+        echo -e "  ${BOLD}DNS-правила${RESET}"
         echo -e "  ------------------------------------------------------------------------"
         for ((idx=0; idx<dns_rules_count; idx++)); do
             local dr server left
@@ -440,7 +440,7 @@ cmd_status() {
     rs_count=$(jq '.route.rule_set | length' "$SINGBOX_CONFIG" 2>/dev/null)
     if [ "$rs_count" -gt 0 ]; then
         echo ""
-        echo -e "  ${BOLD}Наборы правил${NC}"
+        echo -e "  ${BOLD}Наборы правил${RESET}"
         echo -e "  ------------------------------------------------------------------------"
         while IFS= read -r line; do
             echo "   •  $line"
@@ -678,7 +678,7 @@ cmd_add_group() {
 
     if [ "$group_type" = "urltest" ]; then
         echo ""
-        echo -e "  ${BOLD}Health-check:${NC}"
+        echo -e "  ${BOLD}Health-check:${RESET}"
         read -p "  URL [${health_url}]: " inp; health_url=${inp:-$health_url}
         read -p "  Интервал [${health_int}]: " inp; health_int=${inp:-$health_int}
         [[ "$health_int" =~ ^[0-9]+$ ]] && health_int="${health_int}m"
@@ -749,13 +749,13 @@ cmd_add_rule() {
     echo ""
     echo "  Тип правила:"
     echo ""
-    echo -e "    ${BOLD}Ручные (высший приоритет):${NC}"
+    echo -e "    ${BOLD}Ручные (высший приоритет):${RESET}"
     echo "    1) domain          точное совпадение"
     echo "    2) domain_suffix   суффикс (*.example.com)"
     echo "    3) domain_keyword  ключевое слово"
     echo "    4) ip_cidr         подсеть IP"
     echo ""
-    echo -e "    ${BOLD}Rule-set (community списки):${NC}"
+    echo -e "    ${BOLD}Rule-set (community списки):${RESET}"
     echo "    5) geosite         категория (youtube, google...)"
     echo "    6) geoip           страна по IP (ru, us...)"
     echo ""
@@ -783,7 +783,7 @@ cmd_add_rule() {
         echo "     7) microsoft   15) steam       23) wikipedia"
         echo "     8) apple       16) paypal      24) другое (ввести вручную)"
         echo ""
-        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite/tree/rule-set${NC}"
+        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite/tree/rule-set${RESET}"
         echo ""
         read -p "  Выбор [24]: " gc; gc=${gc:-24}
         case "$gc" in
@@ -812,7 +812,7 @@ cmd_add_rule() {
         echo "     3) de — Германия     7) ua — Украина"
         echo "     4) cn — Китай        8) другое (ввести код)"
         echo ""
-        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geoip${NC}"
+        echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geoip${RESET}"
         echo ""
         read -p "  Выбор [8]: " gc; gc=${gc:-8}
         case "$gc" in
@@ -927,15 +927,15 @@ cmd_routing() {
 
     while true; do
         echo ""
-        echo -e "  ${GREEN}${BOLD}▌ Маршрутизация${NC}"
-        echo -e "  ${GREEN}------------------------------------------------------------------------${NC}"
+        echo -e "  ${GREEN}${BOLD}▌ Маршрутизация${RESET}"
+        echo -e "  ${GREEN}------------------------------------------------------------------------${RESET}"
 
         print_user_rules
 
         [ "$_UR_COUNT" -eq 0 ] && echo "   (нет правил)"
 
         echo ""
-        echo -e "  ${YELLOW}${BOLD}[Действия]${NC}"
+        echo -e "  ${YELLOW}${BOLD}[Действия]${RESET}"
         echo "    1  Добавить правило     2  Изменить правило     3  Удалить правило"
         echo "    4  Изменить активность  5  Переместить правило  0  Назад"
         echo ""
@@ -1077,7 +1077,7 @@ cmd_routing() {
             edit_rule=$(jq -c ".route.rules[$edit_idx]" "$SINGBOX_CONFIG")
             old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
             echo ""
-            echo -e "  ${GREEN}> Доступные outbound-подключения${NC}"
+            echo -e "  ${GREEN}> Доступные outbound-подключения${RESET}"
             local outbounds oi=1
             outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
             declare -a ob_arr=()
@@ -1241,20 +1241,20 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  \033[96mSing-box управление\033[0m"
-        echo -e "  \033[90m--------------------------------------------------------\033[0m"
-        echo -e "   \033[37m●${NC} service: \033[92m${svc_label}\033[37m   |   version: v${ver}   |   TUN: \033[92m${tun_label}\033[0m"
+        echo -e "  ${GREEN}${BOLD}Sing-box управление${RESET}"
+        echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
+        echo -e "   \033[37m●${RESET} service: \033[92m${svc_label}\033[37m   |   version: v${ver}   |   TUN: \033[92m${tun_label}\033[0m"
         echo ""
-        echo -e "  ${YELLOW}${BOLD}[Просмотр]${NC}"
+        echo -e "  ${GREEN}[Просмотр]${RESET}"
         echo "    1  Статус"
         echo ""
-        echo -e "  ${YELLOW}${BOLD}[Настройка]${NC}"
+        echo -e "  ${GREEN}[Настройка]${RESET}"
         echo "    2  Добавить сервер      VLESS"
         echo "    3  Создать группу       urltest / selector"
         echo "    4  Маршрутизация        правила трафика"
         echo "    5  Применить            проверка и перезапуск"
         echo ""
-        echo -e "  ${YELLOW}${BOLD}[Удаление]${NC}"
+        echo -e "  ${GREEN}[Удаление]${RESET}"
         echo "    6  Удалить сервер/группу"
         echo ""
         echo "    0  Выход"
