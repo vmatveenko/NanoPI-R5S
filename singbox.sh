@@ -652,7 +652,7 @@ cmd_add_group() {
     print_vless_servers_list tag_arr
 
     echo ""
-    read -p "  Введите наименование группы (Enter — отмена): " group_tag
+    read -p "  Введите тег группы (Enter — отмена): " group_tag
     [ -z "$group_tag" ] && return
 
     if jq -e --arg t "$group_tag" '.outbounds[] | select(.tag == $t)' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
