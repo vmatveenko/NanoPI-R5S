@@ -789,7 +789,8 @@ cmd_add_rule() {
         echo ""
         echo -e "  ${DIM}Полный список: github.com/SagerNet/sing-geosite/tree/rule-set${RESET}"
         echo ""
-        read -p "  > " gc; gc=${gc:-24}
+        read -p "  > " gc
+        [ -z "$gc" ] && return
         case "$gc" in
             1)  rule_value="youtube";;       2)  rule_value="google";;
             3)  rule_value="facebook";;      4)  rule_value="instagram";;
