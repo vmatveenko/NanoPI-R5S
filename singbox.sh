@@ -241,7 +241,7 @@ print_vless_servers_list() {
         [ "$ob_type" != "vless" ] && continue
         ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
         ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
-        printf "   %d  [vless]       %s → %s:%s\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
+        printf "    %d  [vless]       %s → %s:%s\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
         [ -n "${1:-}" ] && _vl_tags_ref+=("$ob_tag")
         si=$((si + 1))
     done
@@ -660,9 +660,9 @@ cmd_add_group() {
     fi
 
     echo ""
-    echo "  Тип группы:"
-    echo "    1) urltest   — автовыбор лучшего + failover"
-    echo "    2) selector  — ручной выбор"
+    echo -e "  ${CYAN}Тип группы:${RESET}"
+    echo -e "    1 ${WHITE}urltest   — автовыбор лучшего + failover${RESET}"
+    echo -e "    2 ${WHITE}selector  — ручной выбор${RESET}"
     read -p "  Выбор (Enter — отмена): " type_ch
     [ -z "$type_ch" ] && return
     local group_type
