@@ -88,9 +88,9 @@ print_user_rules() {
         _UR_KEYS+=("$key")
 
         if [ -n "$key" ] && is_rule_disabled "$key"; then
-            printf "   %d  %-40s -> %-16s ${RED}[ВЫКЛ]${RESET}\n" "$ri" "$label" "$outbound"
+            printf "   ${WHITE}%d  %-40s -> %-16s ${RED}[ВЫКЛ]${RESET}\n" "$ri" "$label" "$outbound"
         else
-            printf "   %d  %-40s -> %s%s\n" "$ri" "$label" "$outbound" "$mark"
+            printf "   ${WHITE}%d  %-40s -> %s%s${RESET}\n" "$ri" "$label" "$outbound" "$mark"
         fi
         ri=$((ri + 1))
     done
@@ -960,8 +960,9 @@ cmd_routing() {
 
         3) # ── Удалить правило ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
+            echo ""
             read -p "  Выберите номер правила: " num
-            [ "$num" = "0" ] && continue
+            [ -z "$num" ] || [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
                 err "Неверный номер"; continue
             fi
