@@ -68,16 +68,16 @@ print_user_rules() {
             label="rule-set: $(echo "$rule" | jq -r '.rule_set | join(", ")')"
         elif echo "$rule" | jq -e '.domain' >/dev/null 2>&1; then
             label="domain: $(echo "$rule" | jq -r '.domain | join(", ")')"
-            mark=" [manual]"
+            mark=" ${YELLOW}[manual]${RESET}"
         elif echo "$rule" | jq -e '.domain_suffix' >/dev/null 2>&1; then
             label="domain_suffix: $(echo "$rule" | jq -r '.domain_suffix | join(", ")')"
-            mark=" [manual]"
+            mark=" ${YELLOW}[manual]${RESET}"
         elif echo "$rule" | jq -e '.domain_keyword' >/dev/null 2>&1; then
             label="domain_keyword: $(echo "$rule" | jq -r '.domain_keyword | join(", ")')"
-            mark=" [manual]"
+            mark=" ${YELLOW}[manual]${RESET}"
         elif echo "$rule" | jq -e '.ip_cidr' >/dev/null 2>&1; then
             label="ip_cidr: $(echo "$rule" | jq -r '.ip_cidr | join(", ")')"
-            mark=" [manual]"
+            mark=" ${YELLOW}[manual]${RESET}"
         else
             label="(другое)"
         fi
