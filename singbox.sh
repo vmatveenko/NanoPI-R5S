@@ -866,19 +866,23 @@ cmd_add_rule() {
     target_type=$(jq -r --arg t "$target" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
     [ "$target_type" != "direct" ] && [ "$target_type" != "block" ] && dns_mirror=1
 
-    draw_section "Подтверждение"
+    
+    echo -e ""
+    echo -e "  ${YELLOW}${BOLD}Подтвердите действие${RESET}"
+    echo -e "  ${YELLOW}--------------------------------------------------------${RESET}"
+
     if [ "$is_ruleset" -eq 1 ]; then
-        printf "  %-14s rule-set (%s)\n" "Тип:" "$rule_type"
-        printf "  %-14s %s\n" "Категория:" "$rule_value"
+        printf "  Тип:       rule-set (%s)\n" "$rule_type"
+        printf "  Категория: %s\n" "$rule_value"
     else
-        printf "  %-14s manual (%s)\n" "Тип:" "$rule_type"
-        printf "  %-14s %s\n" "Значение:" "$rule_value"
+        printf "  Тип:       manual (%s)\n" "$rule_type"
+        printf "  Значение:  %s\n" "$rule_value"
     fi
-    printf "  %-14s %s\n" "Outbound:" "$target"
-    [ "$dns_mirror" -eq 1 ] && printf "  %-14s → dns-vpn (авто)\n" "DNS:"
+    printf "  Outbound:  %s\n" "$target"
+    [ "$dns_mirror" -eq 1 ] && printf "  DNS:       → dns-vpn (авто)\n"
     echo ""
 
-    read -p "  Добавить? [Y/n]: " confirm; confirm=${confirm:-Y}
+    read -p "  Добавить правило? [Y/n]: " confirm; confirm=${confirm:-Y}
     [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
 
     backup_config
