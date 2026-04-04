@@ -228,6 +228,25 @@ print_item() {
     fi
 }
 
+# Список VLESS outbound'ов (как в cmd_status). Если передано имя массива — дополняет его тегами по порядку.
+print_vless_servers_list() {
+    local ob_count si=1 oi ob_type ob_tag ob_server ob_port
+    ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
+    if [ -n "${1:-}" ]; then
+        local -n _vl_tags_ref="$1"
+    fi
+    for ((oi=0; oi<ob_count; oi++)); do
+        ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
+        ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
+        [ "$ob_type" != "vless" ] && continue
+        ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
+        ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
+        printf "   %d  [vless]       %s → %s:%s\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
+        [ -n "${1:-}" ] && _vl_tags_ref+=("$ob_tag")
+        si=$((si + 1))
+    done
+}
+
 print_route_rule() {
     local idx="$1" left="$2" right="$3" mark="${4:-}" color="${5:-$NC}"
     local cols left_w left_txt suffix=''
@@ -298,18 +317,9 @@ cmd_status() {
     echo ""
     echo -e "  ${BOLD}Серверы${RESET}"
     echo -e "  ------------------------------------------------------------------------"
-    local ob_count si=1
+    local ob_count
     ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
-    for ((oi=0; oi<ob_count; oi++)); do
-        local ob_type ob_tag ob_server ob_port
-        ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
-        ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
-        [ "$ob_type" != "vless" ] && continue
-        ob_server=$(jq -r ".outbounds[$oi].server // \"\"" "$SINGBOX_CONFIG")
-        ob_port=$(jq -r ".outbounds[$oi].server_port // \"\"" "$SINGBOX_CONFIG")
-        printf "   %d  [vless]       %s → %s:%s\n" "$si" "$ob_tag" "$ob_server" "$ob_port"
-        si=$((si + 1))
-    done
+    print_vless_servers_list
 
     # ── Группы (urltest/selector) — только если есть ──
     local has_groups=0
@@ -636,16 +646,10 @@ cmd_add_group() {
         err "Нет VLESS-серверов. Сначала добавьте сервер."; return
     fi
 
+    echo ""
     echo -e "  ${CYAN}VLESS-серверы:${RESET}"
-    local i=1
     declare -a tag_arr=()
-    while IFS= read -r tag; do
-        tag_arr+=("$tag")
-        local srv
-        srv=$(jq -r --arg t "$tag" '.outbounds[] | select(.tag == $t) | "\(.server):\(.server_port)"' "$SINGBOX_CONFIG")
-        print_item "$i" "vless" "$tag" "$srv" "$CYAN"
-        i=$((i + 1))
-    done <<< "$vless_tags"
+    print_vless_servers_list tag_arr
 
     echo ""
     read -p "  Тег группы [proxy]: " group_tag; group_tag=${group_tag:-proxy}
