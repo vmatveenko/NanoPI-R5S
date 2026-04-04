@@ -872,18 +872,19 @@ cmd_add_rule() {
     echo -e "  ${YELLOW}--------------------------------------------------------${RESET}"
 
     if [ "$is_ruleset" -eq 1 ]; then
-        printf "  ${WHITE}Тип:       rule-set (%s)${RESET}\n" "$rule_type"
-        printf "  ${WHITE}Категория: %s${RESET}\n" "$rule_value"
+        printf "    ${WHITE}Тип:       rule-set (%s)${RESET}\n" "$rule_type"
+        printf "    ${WHITE}Категория: %s${RESET}\n" "$rule_value"
     else
-        printf "  ${WHITE}Тип:       manual (%s)${RESET}\n" "$rule_type"
-        printf "  ${WHITE}Значение:  %s${RESET}\n" "$rule_value"
+        printf "    ${WHITE}Тип:       manual (%s)${RESET}\n" "$rule_type"
+        printf "    ${WHITE}Значение:  %s${RESET}\n" "$rule_value"
     fi
-    printf "  ${WHITE}Outbound:  %s${RESET}\n" "$target"
-    [ "$dns_mirror" -eq 1 ] && printf "  ${WHITE}DNS:       → dns-vpn (авто)${RESET}\n"
+    printf "    ${WHITE}Outbound:  %s${RESET}\n" "$target"
+    [ "$dns_mirror" -eq 1 ] && printf "    ${WHITE}DNS:       → dns-vpn (авто)${RESET}\n"
     echo ""
 
     read -p "  Добавить правило? [Y/n]: " confirm; confirm=${confirm:-Y}
     [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "  Отменено."; return; }
+    echo ""
 
     backup_config
     local config
