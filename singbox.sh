@@ -1185,7 +1185,7 @@ cmd_apply() {
 }
 
 offer_apply_inline() {
-    read -p "  Применить сейчас? [Y/n]: " a; a=${a:-Y}
+    read -p "  ${WHITE}Применить изменения сейчас? [Y/n]:${RESET} " a; a=${a:-Y}
     if [[ "$a" =~ ^[Yy]$ ]]; then
         echo ""
         apply_config
