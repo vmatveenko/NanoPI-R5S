@@ -624,15 +624,19 @@ cmd_add_vless() {
 #  СОЗДАТЬ ГРУППУ
 # ════════════════════════════════════════════════════════════
 cmd_add_group() {
-    draw_header "Создать группу"
+    echo ""
+    echo -e "  ${GREEN}${BOLD}Sing-box → Создание группы${RESET}"
+    echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
+
 
     local vless_tags
     vless_tags=$(jq -r '.outbounds[] | select(.type == "vless") | .tag' "$SINGBOX_CONFIG")
     if [ -z "$vless_tags" ]; then
+        echo ""
         err "Нет VLESS-серверов. Сначала добавьте сервер."; return
     fi
 
-    draw_section "VLESS-серверы"
+    echo -e "  ${CYAN}VLESS-серверы:${RESET}"
     local i=1
     declare -a tag_arr=()
     while IFS= read -r tag; do
