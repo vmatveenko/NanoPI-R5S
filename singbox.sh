@@ -97,7 +97,7 @@ print_user_rules() {
 
     local final
     final=$(jq -r '.route.final // "direct"' "$SINGBOX_CONFIG")
-    printf "   •  %-40s -> %s\n" "*final" "$final"
+    printf "   •  ${YELLOW}%-40s -> %s${RESET}\n" "*final" "$final"
 }
 
 switch_dns_mirror() {
