@@ -745,17 +745,20 @@ cmd_add_group() {
 #  ДОБАВИТЬ ПРАВИЛО
 # ════════════════════════════════════════════════════════════
 cmd_add_rule() {
-    draw_header "Добавить правило"
+    
+    echo ""
+    echo -e "  ${GREEN}${BOLD}Sing-box → Маршрутизация → Добавить правило${RESET}"
+    echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
     echo ""
     echo "  Тип правила:"
     echo ""
-    echo -e "    ${BOLD}Ручные (высший приоритет):${RESET}"
+    echo -e "    ${CYAN}Ручные (высший приоритет):${RESET}"
     echo "    1) domain          точное совпадение"
     echo "    2) domain_suffix   суффикс (*.example.com)"
     echo "    3) domain_keyword  ключевое слово"
     echo "    4) ip_cidr         подсеть IP"
     echo ""
-    echo -e "    ${BOLD}Rule-set (community списки):${RESET}"
+    echo -e "    ${CYAN}Rule-set (community списки):${RESET}"
     echo "    5) geosite         категория (youtube, google...)"
     echo "    6) geoip           страна по IP (ru, us...)"
     echo ""
@@ -927,7 +930,7 @@ cmd_routing() {
 
     while true; do
         echo ""
-        echo -e "  ${GREEN}${BOLD}Sing-box Маршрутизация${RESET}"
+        echo -e "  ${GREEN}${BOLD}Sing-box → Маршрутизация${RESET}"
         echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
 
         print_user_rules
