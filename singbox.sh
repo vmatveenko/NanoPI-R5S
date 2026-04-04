@@ -1243,7 +1243,7 @@ main_menu() {
         echo ""
         echo -e "  ${GREEN}${BOLD}Sing-box управление${RESET}"
         echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
-        echo -e "   \033[37m●${RESET} service: \033[92m${svc_label}\033[37m   |   version: v${ver}   |   TUN: \033[92m${tun_label}\033[0m"
+        echo -e "   ${GREEN}● ${WHITE}service: ${GREEN}${svc_label}${RESET}   |   ${WHITE}version: v${ver}${RESET}   |   ${WHITE}TUN: ${GREEN}${tun_label}${RESET}"
         echo ""
         echo -e "  ${GREEN}[Просмотр]${RESET}"
         echo -e "    ${WHITE}1  Статус${RESET}"
