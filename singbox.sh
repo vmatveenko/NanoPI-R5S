@@ -927,8 +927,8 @@ cmd_routing() {
 
     while true; do
         echo ""
-        echo -e "  ${GREEN}${BOLD}▌ Маршрутизация${RESET}"
-        echo -e "  ${GREEN}------------------------------------------------------------------------${RESET}"
+        echo -e "  ${GREEN}${BOLD}Sing-box Маршрутизация${RESET}"
+        echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
 
         print_user_rules
 
@@ -1245,21 +1245,21 @@ main_menu() {
         echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
         echo -e "   ${GREEN}● ${WHITE}service: ${GREEN}${svc_label}${RESET}   |   ${WHITE}version: v${ver}${RESET}   |   ${WHITE}TUN: ${GREEN}${tun_label}${RESET}"
         echo ""
-        echo -e "  ${GREEN}[Просмотр]${RESET}"
+        echo -e "  ${CYAN}[Просмотр]${RESET}"
         echo -e "    ${WHITE}1  Статус${RESET}"
         echo ""
-        echo -e "  ${GREEN}[Настройка]${RESET}"
+        echo -e "  ${CYAN}[Настройка]${RESET}"
         echo -e "    ${WHITE}2  Добавить сервер      VLESS${RESET}"
         echo -e "    ${WHITE}3  Создать группу       urltest / selector${RESET}"
         echo -e "    ${WHITE}4  Маршрутизация        правила трафика${RESET}"
         echo -e "    ${WHITE}5  Применить            проверка и перезапуск${RESET}"
         echo ""
-        echo -e "  ${GREEN}[Удаление]${RESET}"
+        echo -e "  ${CYAN}[Удаление]${RESET}"
         echo -e "    ${WHITE}6  Удалить сервер/группу${RESET}"
         echo ""
         echo -e "    ${WHITE}0  Выход${RESET}"
         echo ""
-        read -p "  ${WHITE}>${RESET} " choice
+        read -p "  > " choice
 
         case "$choice" in
             1) cmd_status ;;
