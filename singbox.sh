@@ -339,7 +339,7 @@ cmd_status() {
             [ "$ob_type" != "urltest" ] && [ "$ob_type" != "selector" ] && continue
             ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
             ob_members=$(jq -r "(.outbounds[$oi].outbounds // []) | join(\", \")" "$SINGBOX_CONFIG")
-            printf "   %d  [%-10s]  %s → %s\n" "$gi" "$ob_type" "$ob_tag" "$ob_members"
+            printf "    ${WHITE}%d  [%-10s]  %s → %s${RESET}\n" "$gi" "$ob_type" "$ob_tag" "$ob_members"
             gi=$((gi + 1))
         done
     fi
@@ -352,7 +352,7 @@ cmd_status() {
         ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
         ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
         case "$ob_type" in
-            direct|block|dns) printf "   •  [%s]  %s\n" "$ob_type" "$ob_tag" ;;
+            direct|block|dns) printf "   •  ${WHITE}[%s]  %s${RESET}\n" "$ob_type" "$ob_tag" ;;
         esac
     done
 
@@ -373,15 +373,15 @@ cmd_status() {
             local proto
             proto=$(echo "$rule" | jq -r '.protocol // empty')
             if [ -n "$proto" ]; then
-                printf "   %d  %-40s -> %s\n" "$ri" "protocol: $proto" "$action"
+                printf "   ${WHITE}%d  %-40s -> %s${RESET}\n" "$ri" "protocol: $proto" "$action"
             else
-                printf "   %d  action: %s\n" "$ri" "$action"
+                printf "   ${WHITE}%d  action: %s${RESET}\n" "$ri" "$action"
             fi
             ri=$((ri + 1))
         elif echo "$rule" | jq -e '.inbound' >/dev/null 2>&1; then
             local inb
             inb=$(echo "$rule" | jq -r '.inbound | join(", ")')
-            printf "   %d  %-40s -> %s\n" "$ri" "inbound: $inb" "$outbound"
+            printf "   ${WHITE}%d  %-40s -> %s${RESET}\n" "$ri" "inbound: $inb" "$outbound"
             ri=$((ri + 1))
         fi
     done
@@ -407,7 +407,7 @@ cmd_status() {
         else
             detail="${d_type} (detour: ${d_detour})"
         fi
-        printf "   %d  [dns]         %s → %s\n" "$((di + 1))" "$d_tag" "$detail"
+        printf "   ${WHITE}%d  [dns]         %s → %s${RESET}\n" "$((di + 1))" "$d_tag" "$detail"
     done
 
     # DNS-правила
@@ -429,7 +429,7 @@ cmd_status() {
             else
                 left="(другое)"
             fi
-            printf "   %d  %-40s -> %s\n" "$((idx + 1))" "$left" "$server"
+            printf "   ${WHITE}%d  %-40s -> %s${RESET}\n" "$((idx + 1))" "$left" "$server"
         done
     fi
 
