@@ -160,7 +160,7 @@ delete_dns_mirror() {
 }
 
 # ── UI helpers ───────────────────────────────────────────────
-DIM='\033[2m'
+DIM=$'\033[2m'
 UI_MIN_WIDTH=64
 UI_MAX_WIDTH=100
 UI_PAD=2
