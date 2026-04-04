@@ -848,7 +848,7 @@ cmd_add_rule() {
         ob_arr+=("$ob")
         local ob_type
         ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
-        printf "    ${WHITE}%d  [%s] %s${RESET}\n" "$oi" "$ob_type" "$ob"
+        printf "    ${WHITE}%d  [%s] %s${RESET}\n" "$i" "$ob_type" "$ob"
         i=$((i + 1))
     done <<< "$outbounds"
     echo ""
