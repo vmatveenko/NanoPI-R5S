@@ -935,9 +935,9 @@ cmd_routing() {
         [ "$_UR_COUNT" -eq 0 ] && echo "   (нет правил)"
 
         echo ""
-        echo -e "  ${YELLOW}${BOLD}[Действия]${RESET}"
-        echo "    1  Добавить правило     2  Изменить правило     3  Удалить правило"
-        echo "    4  Изменить активность  5  Переместить правило  0  Назад"
+        echo -e "  ${CYAN}[Действия]${RESET}"
+        echo -e "    ${WHITE}1  Добавить правило     2  Изменить правило     3  Удалить правило${RESET}"
+        echo -e "    ${WHITE}4  Изменить активность  5  Переместить правило  0  Назад${RESET}"
         echo ""
         read -p "  > " act
 
@@ -1241,7 +1241,7 @@ main_menu() {
         fi
 
         echo ""
-        echo -e "  ${GREEN}${BOLD}Sing-box управление${RESET}"
+        echo -e "  ${GREEN}${BOLD}Sing-box Управление${RESET}"
         echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
         echo -e "   ${GREEN}● ${WHITE}service: ${GREEN}${svc_label}${RESET}   |   ${WHITE}version: v${ver}${RESET}   |   ${WHITE}TUN: ${GREEN}${tun_label}${RESET}"
         echo ""
