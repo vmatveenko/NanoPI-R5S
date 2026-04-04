@@ -339,7 +339,7 @@ cmd_status() {
             [ "$ob_type" != "urltest" ] && [ "$ob_type" != "selector" ] && continue
             ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
             ob_members=$(jq -r "(.outbounds[$oi].outbounds // []) | join(\", \")" "$SINGBOX_CONFIG")
-            printf "    ${WHITE}%d  [%-10s]  %s → %s${RESET}\n" "$gi" "$ob_type" "$ob_tag" "$ob_members"
+            printf "    ${WHITE}%d  [%s]  %s → %s${RESET}\n" "$gi" "$ob_type" "$ob_tag" "$ob_members"
             gi=$((gi + 1))
         done
     fi
@@ -352,7 +352,7 @@ cmd_status() {
         ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
         ob_tag=$(jq -r ".outbounds[$oi].tag" "$SINGBOX_CONFIG")
         case "$ob_type" in
-            direct|block|dns) printf "   •  ${WHITE}[%s]  %s${RESET}\n" "$ob_type" "$ob_tag" ;;
+            direct|block|dns) printf "    ${WHITE}•  [%s]  %s${RESET}\n" "$ob_type" "$ob_tag" ;;
         esac
     done
 
