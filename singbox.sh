@@ -316,7 +316,7 @@ cmd_status() {
     # ── Серверы (vless) ──
     echo ""
     echo -e "  ${CYAN}${BOLD}Серверы${RESET}"
-    echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+    echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
     local ob_count
     ob_count=$(jq '.outbounds | length' "$SINGBOX_CONFIG")
     print_vless_servers_list
@@ -333,7 +333,7 @@ cmd_status() {
     if [ "$has_groups" -eq 1 ]; then
         echo ""
         echo -e "  ${CYAN}${BOLD}Группы${RESET}"
-        echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+        echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
         local gi=1
         for ((oi=0; oi<ob_count; oi++)); do
             local ob_type ob_tag ob_members
@@ -349,7 +349,7 @@ cmd_status() {
     # ── Служебные outbound'ы ──
     echo ""
     echo -e "  ${CYAN}${BOLD}Служебные outbound'ы${RESET}"
-    echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+    echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
     for ((oi=0; oi<ob_count; oi++)); do
         local ob_type ob_tag
         ob_type=$(jq -r ".outbounds[$oi].type" "$SINGBOX_CONFIG")
@@ -366,7 +366,7 @@ cmd_status() {
     # Системные правила
     echo ""
     echo -e "  ${CYAN}${BOLD}Системные правила${RESET}"
-    echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+    echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
     for ((idx=0; idx<rules_count; idx++)); do
         local rule action outbound
         rule=$(jq -c ".route.rules[$idx]" "$SINGBOX_CONFIG")
@@ -393,14 +393,14 @@ cmd_status() {
     # Пользовательские правила
     echo ""
     echo -e "  ${CYAN}${BOLD}Пользовательские правила${RESET}"
-    echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+    echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
     
     print_user_rules
 
     # ── DNS ──
     echo ""
     echo -e "  ${CYAN}${BOLD}DNS${RESET}"
-    echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+    echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
     
     local dns_servers_count
     dns_servers_count=$(jq '.dns.servers | length' "$SINGBOX_CONFIG" 2>/dev/null)
@@ -424,7 +424,7 @@ cmd_status() {
     if [ "$dns_rules_count" -gt 0 ]; then
         echo ""
         echo -e "  ${CYAN}${BOLD}DNS-правила${RESET}"
-        echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+        echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
 
         for ((idx=0; idx<dns_rules_count; idx++)); do
             local dr server left
@@ -454,7 +454,7 @@ cmd_status() {
     if [ "$rs_count" -gt 0 ]; then
         echo ""
         echo -e "  ${CYAN}${BOLD}Наборы правил${RESET}"
-        echo -e "  ${CYAN}--------------------------------------------------------${RESET}"
+        echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
         
         while IFS= read -r line; do
             echo "   •  $line"
