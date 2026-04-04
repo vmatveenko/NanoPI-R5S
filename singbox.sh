@@ -652,7 +652,8 @@ cmd_add_group() {
     print_vless_servers_list tag_arr
 
     echo ""
-    read -p "  Тег группы [proxy]: " group_tag; group_tag=${group_tag:-proxy}
+    read -p "  Введите наименование группы (Enter — отмена): " group_tag
+    [ -z "$group_tag" ] && return
 
     if jq -e --arg t "$group_tag" '.outbounds[] | select(.tag == $t)' "$SINGBOX_CONFIG" >/dev/null 2>&1; then
         warn "Группа '$group_tag' будет пересоздана"
@@ -662,7 +663,8 @@ cmd_add_group() {
     echo "  Тип группы:"
     echo "    1) urltest   — автовыбор лучшего + failover"
     echo "    2) selector  — ручной выбор"
-    read -p "  Выбор [1]: " type_ch; type_ch=${type_ch:-1}
+    read -p "  Выбор (Enter — отмена): " type_ch
+    [ -z "$type_ch" ] && return
     local group_type
     case "$type_ch" in 1) group_type="urltest";; 2) group_type="selector";; *) err "Неверно"; return;; esac
 
