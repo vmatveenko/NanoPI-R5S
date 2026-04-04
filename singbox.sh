@@ -689,11 +689,14 @@ cmd_add_group() {
 
     if [ "$group_type" = "urltest" ]; then
         echo ""
-        echo -e "  ${BOLD}Health-check:${RESET}"
-        read -p "  URL [${health_url}]: " inp; health_url=${inp:-$health_url}
-        read -p "  Интервал [${health_int}]: " inp; health_int=${inp:-$health_int}
+        echo -e "  ${BOLD}Проверка доступности узлов (urltest)${RESET}"
+        echo -e "  ${DIM}Sing-box периодически открывает URL через каждый сервер и мерит задержку (RTT).${RESET}"
+        echo -e "  ${DIM}Интервал: ${WHITE}30s${DIM}, ${WHITE}3m${DIM}, ${WHITE}1h${DIM} — или только число (= минуты). Tolerance, мс — не переключать узел, если разница RTT меньше порога (анти-дрожание).${RESET}"
+        echo ""
+        read -p "  URL для замера (Enter — встроенный по умолчанию): " inp; health_url=${inp:-$health_url}
+        read -p "  Интервал между проверками [${health_int}]: " inp; health_int=${inp:-$health_int}
         [[ "$health_int" =~ ^[0-9]+$ ]] && health_int="${health_int}m"
-        read -p "  Tolerance, мс [${health_tol}]: " inp; health_tol=${inp:-$health_tol}
+        read -p "  Допуск задержки, мс [${health_tol}]: " inp; health_tol=${inp:-$health_tol}
     fi
 
     echo ""
