@@ -960,7 +960,7 @@ cmd_routing() {
 
         3) # ── Удалить правило ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
-            read -p "  Номер (0 — отмена): " num
+            read -p "  Выберите номер правила: " num
             [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
                 err "Неверный номер"; continue
@@ -989,7 +989,7 @@ cmd_routing() {
 
         4) # ── Вкл/выкл ──
             [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
-            read -p "  Номер (0 — отмена): " num
+            read -p "  Выберите номер правила: " num
             [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
                 err "Неверный номер"; continue
