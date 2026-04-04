@@ -1077,7 +1077,7 @@ cmd_routing() {
             edit_rule=$(jq -c ".route.rules[$edit_idx]" "$SINGBOX_CONFIG")
             old_outbound=$(echo "$edit_rule" | jq -r '.outbound')
             echo ""
-            echo -e "  ${GREEN}> Доступные outbound-подключения${RESET}"
+            echo -e "  ${GREEN}Доступные outbound-подключения${RESET}"
             local outbounds oi=1
             outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
             declare -a ob_arr=()
@@ -1115,6 +1115,7 @@ cmd_routing() {
                     '.route.rules[$idx].outbound = $ob')
                 config=$(switch_dns_mirror "$edit_rule" "$new_dns_server" "$config")
                 write_config "$config"
+                echo ""
                 ok "Outbound: $old_outbound -> $new_outbound"
             fi
             changed=1
