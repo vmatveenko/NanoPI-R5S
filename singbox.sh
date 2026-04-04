@@ -307,11 +307,11 @@ cmd_status() {
         tun_status="${RED}DOWN${RESET}"
     fi
 
-    echo -e "  Сервис:     $svc_status"
-    echo -e "  Версия:     $version"
-    echo -e "  TUN:        $tun_iface ($tun_addr)"
-    echo -e "  TUN статус: $tun_status"
-    echo -e "  Proxy-in:   :${proxy_port} (SOCKS5/HTTP)"
+    echo -e "  ${WHITE}Сервис:     ${RESET}$svc_status"
+    echo -e "  ${WHITE}Версия:     $version${RESET}"
+    echo -e "  ${WHITE}TUN:        $tun_iface ($tun_addr)${RESET}"
+    echo -e "  ${WHITE}TUN статус: ${RESET}$tun_status"
+    echo -e "  ${WHITE}Proxy-in:   :${proxy_port} (SOCKS5/HTTP)${RESET}"
 
     # ── Серверы (vless) ──
     echo ""
