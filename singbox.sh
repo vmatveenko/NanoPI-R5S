@@ -753,16 +753,16 @@ cmd_add_rule() {
     echo "  Тип правила:"
     echo ""
     echo -e "    ${CYAN}Ручные (высший приоритет):${RESET}"
-    echo "    1) domain          точное совпадение"
-    echo "    2) domain_suffix   суффикс (*.example.com)"
-    echo "    3) domain_keyword  ключевое слово"
-    echo "    4) ip_cidr         подсеть IP"
+    echo -e "     ${WHITE}1 domain          точное совпадение${RESET}"
+    echo -e "     ${WHITE}2 domain_suffix   суффикс (*.example.com)${RESET}"
+    echo -e "     ${WHITE}3 domain_keyword  ключевое слово${RESET}"
+    echo -e "     ${WHITE}4 ip_cidr         подсеть IP${RESET}"
     echo ""
     echo -e "    ${CYAN}Rule-set (community списки):${RESET}"
-    echo "    5) geosite         категория (youtube, google...)"
-    echo "    6) geoip           страна по IP (ru, us...)"
+    echo -e "     ${WHITE}5 geosite         категория (youtube, google...)${RESET}"
+    echo -e "     ${WHITE}6 geoip           страна по IP (ru, us...)${RESET}"
     echo ""
-    read -p "  Выбор [5]: " rule_ch; rule_ch=${rule_ch:-5}
+    read -p "  > " rule_ch; rule_ch=${rule_ch:-5}
 
     local rule_type="" is_ruleset=0
     case "$rule_ch" in
