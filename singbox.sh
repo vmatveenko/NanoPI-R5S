@@ -762,7 +762,8 @@ cmd_add_rule() {
     echo -e "     ${WHITE}5 geosite         категория (youtube, google...)${RESET}"
     echo -e "     ${WHITE}6 geoip           страна по IP (ru, us...)${RESET}"
     echo ""
-    read -p "  > " rule_ch; rule_ch=${rule_ch:-5}
+    read -p "  > " rule_ch
+    [ -z "$rule_ch" ] && return
 
     local rule_type="" is_ruleset=0
     case "$rule_ch" in
@@ -852,7 +853,8 @@ cmd_add_rule() {
         i=$((i + 1))
     done <<< "$outbounds"
     echo ""
-    read -p "  Outbound (номер): " ob_num
+    read -p "  > " ob_num
+    [ -z "$ob_num" ] && return
     if ! [[ "$ob_num" =~ ^[0-9]+$ ]] || [ "$ob_num" -lt 1 ] || [ "$ob_num" -gt "${#ob_arr[@]}" ]; then
         err "Неверный номер"; return
     fi
