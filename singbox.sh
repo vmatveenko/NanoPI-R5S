@@ -1249,17 +1249,17 @@ main_menu() {
         echo "    1  Статус"
         echo ""
         echo -e "  ${GREEN}[Настройка]${RESET}"
-        echo "    2  Добавить сервер      VLESS"
-        echo "    3  Создать группу       urltest / selector"
-        echo "    4  Маршрутизация        правила трафика"
-        echo "    5  Применить            проверка и перезапуск"
+        echo "    ${WHITE}2  Добавить сервер      VLESS${RESET}"
+        echo "    ${WHITE}3  Создать группу       urltest / selector${RESET}"
+        echo "    ${WHITE}4  Маршрутизация        правила трафика${RESET}"
+        echo "    ${WHITE}5  Применить            проверка и перезапуск${RESET}"
         echo ""
         echo -e "  ${GREEN}[Удаление]${RESET}"
-        echo "    6  Удалить сервер/группу"
+        echo "    ${WHITE}6  Удалить сервер/группу${RESET}"
         echo ""
-        echo "    0  Выход"
+        echo "    ${WHITE}0  Выход${RESET}"
         echo ""
-        read -p "  > " choice
+        read -p "  ${WHITE}>${RESET} " choice
 
         case "$choice" in
             1) cmd_status ;;
