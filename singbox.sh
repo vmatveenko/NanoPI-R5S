@@ -964,6 +964,7 @@ cmd_routing() {
             read -p "  Выберите номер правила: " num
             [ -z "$num" ] || [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
+                echo ""
                 err "Неверный номер"; continue
             fi
 
@@ -994,12 +995,13 @@ cmd_routing() {
             read -p "  Выберите номер правила: " num
             [ "$num" = "0" ] && continue
             if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$_UR_COUNT" ]; then
+                echo ""
                 err "Неверный номер"; continue
             fi
 
             local tog_idx="${_UR_INDICES[$((num-1))]}"
             local tog_key="${_UR_KEYS[$((num-1))]}"
-            [ -z "$tog_key" ] && { err "Правило без ключа"; continue; }
+            [ -z "$tog_key" ] && { echo ""; err "Правило без ключа"; continue; }
 
             local tog_rule
             tog_rule=$(jq -c ".route.rules[$tog_idx]" "$SINGBOX_CONFIG")
@@ -1040,10 +1042,12 @@ cmd_routing() {
             echo ""
             read -p "  Выберите номер правила: " src_num
             if ! [[ "$src_num" =~ ^[0-9]+$ ]] || [ "$src_num" -lt 1 ] || [ "$src_num" -gt "$_UR_COUNT" ]; then
+                echo ""
                 err "Неверный номер"; continue
             fi
             read -p "  Укажите позицию для перемещения (1-${_UR_COUNT}): " tgt_num
             if ! [[ "$tgt_num" =~ ^[0-9]+$ ]] || [ "$tgt_num" -lt 1 ] || [ "$tgt_num" -gt "$_UR_COUNT" ]; then
+                echo ""
                 err "Неверная позиция"; continue
             fi
             [ "$src_num" -eq "$tgt_num" ] && { info "Позиция не изменилась"; continue; }
