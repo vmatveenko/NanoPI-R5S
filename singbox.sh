@@ -1037,11 +1037,12 @@ cmd_routing() {
 
         5) # ── Переместить ──
             [ "$_UR_COUNT" -lt 2 ] && { warn "Недостаточно правил"; continue; }
-            read -p "  Номер правила: " src_num
+            echo ""
+            read -p "  Выберите номер правила: " src_num
             if ! [[ "$src_num" =~ ^[0-9]+$ ]] || [ "$src_num" -lt 1 ] || [ "$src_num" -gt "$_UR_COUNT" ]; then
                 err "Неверный номер"; continue
             fi
-            read -p "  На позицию (1-${_UR_COUNT}): " tgt_num
+            read -p "  Укажите позицию для перемещения (1-${_UR_COUNT}): " tgt_num
             if ! [[ "$tgt_num" =~ ^[0-9]+$ ]] || [ "$tgt_num" -lt 1 ] || [ "$tgt_num" -gt "$_UR_COUNT" ]; then
                 err "Неверная позиция"; continue
             fi
