@@ -1074,7 +1074,8 @@ cmd_routing() {
             config=$(echo "$config" | jq --argjson idx "$insert_abs" --argjson rule "$rule_json" \
                 '.route.rules |= .[:$idx] + [$rule] + .[$idx:]')
             write_config "$config"
-            ok "Правило перемещено на позицию $tgt_num"
+            echo ""
+            ok "Правило перемещено на позицию: $tgt_num"
             changed=1
             ;;
 
