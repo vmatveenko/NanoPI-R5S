@@ -448,19 +448,6 @@ cmd_status() {
     dns_final=$(jq -r '.dns.final // "dns-direct"' "$SINGBOX_CONFIG")
     echo -e "  DNS по умолчанию:  $dns_final"
 
-    # Наборы правил
-    local rs_count
-    rs_count=$(jq '.route.rule_set | length' "$SINGBOX_CONFIG" 2>/dev/null)
-    if [ "$rs_count" -gt 0 ]; then
-        echo ""
-        echo -e "  ${CYAN}${BOLD}Наборы правил${RESET}"
-        echo -e "  ${CYAN}----------------------------------------------------------------${RESET}"
-        
-        while IFS= read -r line; do
-            echo "   •  $line"
-        done < <(jq -r '.route.rule_set[] | "\(.tag) [\(.type)]"' "$SINGBOX_CONFIG")
-    fi
-
     echo ""
 }
 
