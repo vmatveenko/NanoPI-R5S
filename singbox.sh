@@ -88,7 +88,7 @@ print_user_rules() {
         _UR_KEYS+=("$key")
 
         if [ -n "$key" ] && is_rule_disabled "$key"; then
-            printf "   ${WHITE}%d  %-40s -> %-16s ${RED}[ВЫКЛ]${RESET}\n" "$ri" "$label" "$outbound"
+            printf "   ${WHITE}%d  %-40s -> %s ${RED}[ВЫКЛ]${RESET}\n" "$ri" "$label" "$outbound"
         else
             printf "   ${WHITE}%d  %-40s -> %s%s${RESET}\n" "$ri" "$label" "$outbound" "$mark"
         fi
@@ -1019,6 +1019,7 @@ cmd_routing() {
                 jq --arg k "$tog_key" 'del(.[$k])' "$DISABLED_RULES_FILE" > "${DISABLED_RULES_FILE}.tmp"
                 mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
                 write_config "$config"
+                echo ""
                 ok "Включено: $tog_key -> $orig_outbound"
             else
                 jq --arg k "$tog_key" --arg v "$tog_outbound" '. + {($k): $v}' \
@@ -1028,6 +1029,7 @@ cmd_routing() {
                     '.route.rules[$idx].outbound = "direct"')
                 config=$(switch_dns_mirror "$tog_rule" "dns-direct" "$config")
                 write_config "$config"
+                echo ""
                 ok "Отключено: $tog_key -> direct (было: $tog_outbound)"
             fi
             changed=1
