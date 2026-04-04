@@ -750,7 +750,7 @@ cmd_add_rule() {
     echo -e "  ${GREEN}${BOLD}Sing-box → Маршрутизация → Добавить правило${RESET}"
     echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
     echo ""
-    echo "  Тип правила:"
+    echo -e "  ${WHITE}${BOLD}Тип правила:${RESET}"
     echo ""
     echo -e "    ${CYAN}Ручные (высший приоритет):${RESET}"
     echo -e "     ${WHITE}1 domain          точное совпадение${RESET}"
