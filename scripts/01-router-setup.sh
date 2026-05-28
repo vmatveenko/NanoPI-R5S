@@ -331,22 +331,32 @@ chmod 600 /etc/netplan/01-router.yaml
 netplan apply
 ok "Netplan применён"
 
-# Ожидание поднятия br0
-info "Ожидание br0..."
-BR0_UP=0
+# Ожидание создания br0
+info "Ожидание создания br0..."
+BR0_EXISTS=0
+
 for i in $(seq 1 30); do
-    if ip link show br0 up 2>/dev/null | grep -q "state UP\|state UNKNOWN"; then
-        ok "br0 поднят"
-        BR0_UP=1
+    if ip link show br0 >/dev/null 2>&1; then
+        ok "br0 создан"
+        BR0_EXISTS=1
         break
     fi
     sleep 1
 done
 
-if [ "$BR0_UP" -eq 0 ]; then
-    err "br0 не поднялся за 30 секунд"
+if [ "$BR0_EXISTS" -eq 0 ]; then
+    err "br0 не создан за 30 секунд"
+    echo ""
+    echo "Диагностика:"
+    ip link show
+    networkctl status br0 --no-pager 2>/dev/null || true
+    journalctl -u systemd-networkd -n 80 --no-pager || true
     exit 1
 fi
+
+# Принудительно поднимаем bridge.
+# Даже если нет кабеля в eth1/eth2, br0 может быть NO-CARRIER — это не критично.
+ip link set br0 up || true
 
 # Ожидание присвоения IP на br0
 info "Ожидание IP на br0..."
