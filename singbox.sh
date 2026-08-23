@@ -46,6 +46,36 @@ _UR_INDICES=()
 _UR_KEYS=()
 _UR_COUNT=0
 
+# Разбор списка номеров правил: 1,3,5-8
+_SELECTED_RULES=()
+parse_rule_selection() {
+    local input="${1//[[:space:]]/}" max="$2"
+    _SELECTED_RULES=()
+
+    [[ "$input" =~ ^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$ ]] || return 1
+
+    local -A seen=()
+    local token start end n
+    IFS=',' read -ra tokens <<< "$input"
+    for token in "${tokens[@]}"; do
+        if [[ "$token" == *-* ]]; then
+            start="${token%-*}"
+            end="${token#*-}"
+        else
+            start="$token"
+            end="$token"
+        fi
+
+        [ "$start" -ge 1 ] && [ "$end" -le "$max" ] && [ "$start" -le "$end" ] || return 1
+        for ((n=start; n<=end; n++)); do
+            if [ -z "${seen[$n]+x}" ]; then
+                _SELECTED_RULES+=("$n")
+                seen[$n]=1
+            fi
+        done
+    done
+}
+
 print_user_rules() {
     _UR_INDICES=()
     _UR_KEYS=()
@@ -953,7 +983,8 @@ cmd_routing() {
         echo ""
         echo -e "  ${CYAN}[Действия]${RESET}"
         echo -e "    ${WHITE}1  Добавить правило     2  Изменить правило     3  Удалить правило${RESET}"
-        echo -e "    ${WHITE}4  Изменить активность  5  Переместить правило  0  Назад${RESET}"
+        echo -e "    ${WHITE}4  Изменить активность  5  Переместить правило${RESET}"
+        echo -e "    ${WHITE}6  Групповое изменение правила                  0  Назад${RESET}"
         echo ""
         read -p "  > " act
 
@@ -1144,6 +1175,71 @@ cmd_routing() {
                 echo ""
                 ok "Outbound: $old_outbound -> $new_outbound"
             fi
+            changed=1
+            ;;
+
+        6) # ── Групповое изменение outbound ──
+            [ "$_UR_COUNT" -eq 0 ] && { warn "Нет правил"; continue; }
+            echo ""
+            read -p "  Номера правил (например, 1,3,5-8): " selection
+            [ -z "$selection" ] || [ "$selection" = "0" ] && continue
+            if ! parse_rule_selection "$selection" "$_UR_COUNT"; then
+                echo ""
+                err "Неверный список номеров"; continue
+            fi
+
+            echo ""
+            echo -e "  ${GREEN}Доступные outbound-подключения:${RESET}"
+            local bulk_outbounds bulk_oi=1
+            bulk_outbounds=$(jq -r '.outbounds[] | select(.type != "dns") | .tag' "$SINGBOX_CONFIG")
+            declare -a bulk_ob_arr=()
+            while IFS= read -r ob; do
+                bulk_ob_arr+=("$ob")
+                local bulk_ob_type
+                bulk_ob_type=$(jq -r --arg t "$ob" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+                printf "    ${WHITE}%d  [%s] %s${RESET}\n" "$bulk_oi" "$bulk_ob_type" "$ob"
+                bulk_oi=$((bulk_oi + 1))
+            done <<< "$bulk_outbounds"
+
+            echo ""
+            read -p "  > " bulk_ob_num
+            if ! [[ "$bulk_ob_num" =~ ^[0-9]+$ ]] || [ "$bulk_ob_num" -lt 1 ] || [ "$bulk_ob_num" -gt "${#bulk_ob_arr[@]}" ]; then
+                err "Неверный номер"; continue
+            fi
+
+            local bulk_new_outbound="${bulk_ob_arr[$((bulk_ob_num-1))]}"
+            local bulk_new_ob_type bulk_dns_server="dns-vpn"
+            bulk_new_ob_type=$(jq -r --arg t "$bulk_new_outbound" '.outbounds[] | select(.tag == $t) | .type' "$SINGBOX_CONFIG")
+            [ "$bulk_new_ob_type" = "direct" ] || [ "$bulk_new_ob_type" = "block" ] && bulk_dns_server="dns-direct"
+
+            backup_config
+            local bulk_config bulk_disabled_json bulk_disabled_changed=0 rule_num
+            bulk_config=$(cat "$SINGBOX_CONFIG")
+            bulk_disabled_json=$(cat "$DISABLED_RULES_FILE")
+
+            for rule_num in "${_SELECTED_RULES[@]}"; do
+                local bulk_idx="${_UR_INDICES[$((rule_num-1))]}"
+                local bulk_key="${_UR_KEYS[$((rule_num-1))]}"
+                local bulk_rule
+                bulk_rule=$(echo "$bulk_config" | jq -c ".route.rules[$bulk_idx]")
+
+                if [ -n "$bulk_key" ] && is_rule_disabled "$bulk_key"; then
+                    bulk_disabled_json=$(echo "$bulk_disabled_json" | jq --arg k "$bulk_key" --arg v "$bulk_new_outbound" '.[$k] = $v')
+                    bulk_disabled_changed=1
+                else
+                    bulk_config=$(echo "$bulk_config" | jq --argjson idx "$bulk_idx" --arg ob "$bulk_new_outbound" \
+                        '.route.rules[$idx].outbound = $ob')
+                    bulk_config=$(switch_dns_mirror "$bulk_rule" "$bulk_dns_server" "$bulk_config")
+                fi
+            done
+
+            write_config "$bulk_config"
+            if [ "$bulk_disabled_changed" -eq 1 ]; then
+                echo "$bulk_disabled_json" > "${DISABLED_RULES_FILE}.tmp"
+                mv "${DISABLED_RULES_FILE}.tmp" "$DISABLED_RULES_FILE"
+            fi
+            echo ""
+            ok "Outbound изменён на $bulk_new_outbound для ${#_SELECTED_RULES[@]} правил"
             changed=1
             ;;
 
