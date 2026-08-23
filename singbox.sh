@@ -652,6 +652,150 @@ cmd_add_vless() {
 }
 
 # ════════════════════════════════════════════════════════════
+#  ИЗМЕНИТЬ VLESS (TAG СОХРАНЯЕТСЯ)
+# ════════════════════════════════════════════════════════════
+cmd_edit_vless() {
+    draw_header "Изменить VLESS-сервер"
+
+    local vless_tags
+    vless_tags=$(jq -r '.outbounds[] | select(.type == "vless") | .tag' "$SINGBOX_CONFIG")
+    if [ -z "$vless_tags" ]; then
+        warn "Нет VLESS-серверов для изменения"; return
+    fi
+
+    echo ""
+    declare -a edit_tags=()
+    print_vless_servers_list edit_tags
+    echo ""
+    read -p "  Номер сервера (0 — отмена): " edit_num
+    [ "$edit_num" = "0" ] && return
+    if ! [[ "$edit_num" =~ ^[0-9]+$ ]] || [ "$edit_num" -lt 1 ] || [ "$edit_num" -gt "${#edit_tags[@]}" ]; then
+        err "Неверный номер"; return
+    fi
+
+    local keep_tag="${edit_tags[$((edit_num-1))]}"
+    echo ""
+    echo -e "  ${DIM}Имя подключения '$keep_tag' будет сохранено — правила и группы менять не потребуется.${RESET}"
+    read -p "  Новая VLESS URI: " vless_uri
+    if [[ ! "$vless_uri" == vless://* ]]; then
+        err "URI должен начинаться с vless://"; return
+    fi
+
+    local uri="${vless_uri#vless://}"
+    uri="${uri%%#*}"
+    [[ "$uri" == *@* ]] || { err "В URI отсутствует UUID или адрес сервера"; return; }
+
+    local VLESS_UUID="${uri%%@*}"
+    uri="${uri#*@}"
+    local hostport params=""
+    if [[ "$uri" == *"?"* ]]; then
+        hostport="${uri%%\?*}"
+        params="${uri#*\?}"
+    else
+        hostport="$uri"
+    fi
+
+    local VLESS_SERVER VLESS_PORT
+    if [[ "$hostport" == "["* ]]; then
+        [[ "$hostport" == *"]:"* ]] || { err "Неверный IPv6-адрес или порт"; return; }
+        VLESS_SERVER="${hostport%%]*}"
+        VLESS_SERVER="${VLESS_SERVER#[}"
+        VLESS_PORT="${hostport##*]:}"
+    else
+        [[ "$hostport" == *:* ]] || { err "В URI отсутствует порт"; return; }
+        VLESS_SERVER="${hostport%:*}"
+        VLESS_PORT="${hostport##*:}"
+    fi
+
+    [ -n "$VLESS_UUID" ] && [ -n "$VLESS_SERVER" ] || { err "UUID и адрес сервера обязательны"; return; }
+    if ! [[ "$VLESS_PORT" =~ ^[0-9]+$ ]] || [ "$VLESS_PORT" -lt 1 ] || [ "$VLESS_PORT" -gt 65535 ]; then
+        err "Неверный порт"; return
+    fi
+
+    local VLESS_FLOW="" VLESS_SECURITY="none" VLESS_SNI=""
+    local VLESS_FINGERPRINT="chrome" VLESS_REALITY_PUBKEY="" VLESS_REALITY_SHORTID=""
+    local VLESS_TRANSPORT="tcp" VLESS_WS_PATH="" VLESS_WS_HOST=""
+    local VLESS_GRPC_SERVICE="" VLESS_ALPN=""
+    if [ -n "$params" ]; then
+        local pair key value
+        IFS='&' read -ra EDIT_PAIRS <<< "$params"
+        for pair in "${EDIT_PAIRS[@]}"; do
+            key="${pair%%=*}"
+            value=$(urldecode "${pair#*=}")
+            case "$key" in
+                type)        VLESS_TRANSPORT="$value" ;;
+                security)    VLESS_SECURITY="$value" ;;
+                sni)         VLESS_SNI="$value" ;;
+                fp)          VLESS_FINGERPRINT="$value" ;;
+                flow)        VLESS_FLOW="$value" ;;
+                pbk)         VLESS_REALITY_PUBKEY="$value" ;;
+                sid)         VLESS_REALITY_SHORTID="$value" ;;
+                path)        VLESS_WS_PATH="$value" ;;
+                host)        VLESS_WS_HOST="$value" ;;
+                serviceName) VLESS_GRPC_SERVICE="$value" ;;
+                alpn)        VLESS_ALPN="$value" ;;
+            esac
+        done
+    fi
+
+    case "$VLESS_SECURITY" in none|tls|reality) ;; *) err "Неподдерживаемый тип security: $VLESS_SECURITY"; return ;; esac
+    case "$VLESS_TRANSPORT" in tcp|ws|grpc) ;; *) err "Неподдерживаемый транспорт: $VLESS_TRANSPORT"; return ;; esac
+    [ "$VLESS_SECURITY" != "reality" ] || [ -n "$VLESS_REALITY_PUBKEY" ] || { err "Для Reality необходим public key (pbk)"; return; }
+
+    local NEW_OUTBOUND
+    NEW_OUTBOUND=$(jq -n --arg tag "$keep_tag" --arg server "$VLESS_SERVER" \
+        --argjson port "$VLESS_PORT" --arg uuid "$VLESS_UUID" \
+        '{type:"vless",tag:$tag,server:$server,server_port:$port,uuid:$uuid}')
+    [ -n "$VLESS_FLOW" ] && NEW_OUTBOUND=$(echo "$NEW_OUTBOUND" | jq --arg f "$VLESS_FLOW" '. + {flow:$f}')
+
+    if [ "$VLESS_SECURITY" = "tls" ] || [ "$VLESS_SECURITY" = "reality" ]; then
+        local TLS_OBJ
+        TLS_OBJ=$(jq -n '{enabled:true}')
+        [ -n "$VLESS_SNI" ] && TLS_OBJ=$(echo "$TLS_OBJ" | jq --arg s "$VLESS_SNI" '. + {server_name:$s}')
+        [ -n "$VLESS_FINGERPRINT" ] && TLS_OBJ=$(echo "$TLS_OBJ" | jq --arg f "$VLESS_FINGERPRINT" '. + {utls:{enabled:true,fingerprint:$f}}')
+        if [ -n "$VLESS_ALPN" ]; then
+            local alpn_arr
+            alpn_arr=$(echo "$VLESS_ALPN" | tr ',' '\n' | jq -R . | jq -s .)
+            TLS_OBJ=$(echo "$TLS_OBJ" | jq --argjson a "$alpn_arr" '. + {alpn:$a}')
+        fi
+        [ "$VLESS_SECURITY" = "reality" ] && TLS_OBJ=$(echo "$TLS_OBJ" | jq \
+            --arg pk "$VLESS_REALITY_PUBKEY" --arg sid "$VLESS_REALITY_SHORTID" \
+            '. + {reality:{enabled:true,public_key:$pk,short_id:$sid}}')
+        NEW_OUTBOUND=$(echo "$NEW_OUTBOUND" | jq --argjson tls "$TLS_OBJ" '. + {tls:$tls}')
+    fi
+
+    case "$VLESS_TRANSPORT" in
+        ws)
+            local tr_obj
+            tr_obj=$(jq -n --arg p "${VLESS_WS_PATH:-/}" '{type:"ws",path:$p}')
+            [ -n "$VLESS_WS_HOST" ] && tr_obj=$(echo "$tr_obj" | jq --arg h "$VLESS_WS_HOST" '. + {headers:{Host:$h}}')
+            NEW_OUTBOUND=$(echo "$NEW_OUTBOUND" | jq --argjson t "$tr_obj" '. + {transport:$t}')
+            ;;
+        grpc)
+            NEW_OUTBOUND=$(echo "$NEW_OUTBOUND" | jq --arg sn "${VLESS_GRPC_SERVICE:-grpc}" '. + {transport:{type:"grpc",service_name:$sn}}')
+            ;;
+    esac
+
+    draw_section "Подтверждение"
+    printf "  %-14s %s (сохраняется)\n" "Тег:" "$keep_tag"
+    printf "  %-14s %s:%s\n" "Новый сервер:" "$VLESS_SERVER" "$VLESS_PORT"
+    printf "  %-14s %s\n" "Security:" "$VLESS_SECURITY"
+    printf "  %-14s %s\n" "Транспорт:" "$VLESS_TRANSPORT"
+    echo ""
+    read -p "  Заменить подключение? [y/N]: " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || { echo "  Отменено."; return; }
+
+    backup_config
+    local config
+    config=$(jq --arg tag "$keep_tag" --argjson new "$NEW_OUTBOUND" \
+        '.outbounds |= map(if .tag == $tag then $new else . end)' "$SINGBOX_CONFIG")
+    write_config "$config"
+    ok "VLESS '$keep_tag' изменён; ссылки правил и групп сохранены"
+    echo ""
+    offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
 #  СОЗДАТЬ ГРУППУ
 # ════════════════════════════════════════════════════════════
 cmd_add_group() {
@@ -1285,12 +1429,30 @@ offer_apply_inline() {
 #  УДАЛИТЬ СЕРВЕР / ГРУППУ
 # ════════════════════════════════════════════════════════════
 cmd_delete_outbound() {
-    draw_header "Удалить сервер / группу" "$RED"
+    local kind="${1:-all}" title filter empty_message
+    case "$kind" in
+        server)
+            title="Удалить VLESS-сервер"
+            filter='.outbounds[] | select(.type == "vless") | .tag'
+            empty_message="Нет VLESS-серверов для удаления"
+            ;;
+        group)
+            title="Удалить группу"
+            filter='.outbounds[] | select(.type == "urltest" or .type == "selector") | .tag'
+            empty_message="Нет групп для удаления"
+            ;;
+        *)
+            title="Удалить сервер / группу"
+            filter='.outbounds[] | select(.type != "direct" and .type != "block" and .type != "dns") | .tag'
+            empty_message="Нет серверов/групп для удаления"
+            ;;
+    esac
+    draw_header "$title" "$RED"
 
     local custom_obs
-    custom_obs=$(jq -r '.outbounds[] | select(.type != "direct" and .type != "block" and .type != "dns") | .tag' "$SINGBOX_CONFIG")
+    custom_obs=$(jq -r "$filter" "$SINGBOX_CONFIG")
     if [ -z "$custom_obs" ]; then
-        warn "Нет серверов/групп для удаления"; return
+        warn "$empty_message"; return
     fi
 
     echo ""
@@ -1337,6 +1499,49 @@ cmd_delete_outbound() {
     ok "'$del_tag' удалён"
     echo ""
     offer_apply_inline
+}
+
+# ════════════════════════════════════════════════════════════
+#  ПОДМЕНЮ ПОДКЛЮЧЕНИЙ И ГРУПП
+# ════════════════════════════════════════════════════════════
+cmd_connections() {
+    while true; do
+        echo ""
+        echo -e "  ${GREEN}${BOLD}Sing-box → Подключения${RESET}"
+        echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
+        echo -e "    ${WHITE}1  Добавить VLESS-сервер${RESET}"
+        echo -e "    ${WHITE}2  Изменить VLESS-сервер${RESET}"
+        echo -e "    ${WHITE}3  Удалить VLESS-сервер${RESET}"
+        echo -e "    ${WHITE}0  Назад${RESET}"
+        echo ""
+        read -p "  > " connection_action
+        case "$connection_action" in
+            1) cmd_add_vless ;;
+            2) cmd_edit_vless ;;
+            3) cmd_delete_outbound server ;;
+            0|q|"") break ;;
+            *) warn "Неверный выбор" ;;
+        esac
+    done
+}
+
+cmd_groups() {
+    while true; do
+        echo ""
+        echo -e "  ${GREEN}${BOLD}Sing-box → Группы${RESET}"
+        echo -e "  ${GREEN}--------------------------------------------------------${RESET}"
+        echo -e "    ${WHITE}1  Создать / пересоздать группу${RESET}"
+        echo -e "    ${WHITE}2  Удалить группу${RESET}"
+        echo -e "    ${WHITE}0  Назад${RESET}"
+        echo ""
+        read -p "  > " group_action
+        case "$group_action" in
+            1) cmd_add_group ;;
+            2) cmd_delete_outbound group ;;
+            0|q|"") break ;;
+            *) warn "Неверный выбор" ;;
+        esac
+    done
 }
 
 # ════════════════════════════════════════════════════════════
@@ -1390,16 +1595,13 @@ main_menu() {
         echo -e "    ${WHITE}1  Статус${RESET}"
         echo ""
         echo -e "  ${CYAN}[Настройка]${RESET}"
-        echo -e "    ${WHITE}2  Добавить сервер      VLESS${RESET}"
-        echo -e "    ${WHITE}3  Создать группу       urltest / selector${RESET}"
+        echo -e "    ${WHITE}2  Подключения          добавить / изменить / удалить VLESS${RESET}"
+        echo -e "    ${WHITE}3  Группы               создать / удалить${RESET}"
         echo -e "    ${WHITE}4  Маршрутизация        правила трафика${RESET}"
         echo -e "    ${WHITE}5  Применить            проверка и перезапуск${RESET}"
         echo ""
-        echo -e "  ${CYAN}[Удаление]${RESET}"
-        echo -e "    ${WHITE}6  Удалить сервер/группу${RESET}"
-        echo ""
         echo -e "  ${CYAN}[Другое]${RESET}"
-        echo -e "    ${WHITE}7  Обновить скрипты${RESET}"
+        echo -e "    ${WHITE}6  Обновить скрипты${RESET}"
         echo ""
         echo -e "    ${WHITE}0  Выход${RESET}"
         echo ""
@@ -1407,12 +1609,11 @@ main_menu() {
 
         case "$choice" in
             1) cmd_status ;;
-            2) cmd_add_vless ;;
-            3) cmd_add_group ;;
+            2) cmd_connections ;;
+            3) cmd_groups ;;
             4) cmd_routing ;;
             5) cmd_apply ;;
-            6) cmd_delete_outbound ;;
-            7) cmd_update_scripts ;;
+            6) cmd_update_scripts ;;
             0|q|"") echo ""; break ;;
             *) warn "Неверный выбор" ;;
         esac
