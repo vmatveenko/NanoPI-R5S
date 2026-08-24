@@ -8,6 +8,12 @@ INSTALL_DIR="/usr/local/lib/nanopi-manager"
 STATE_DIR="/var/lib/nanopi-manager"
 CONFIG_DIR="/etc/nanopi-manager"
 RELEASE_REPO="vmatveenko/NanoPI-R5S"
+MANAGER_UNITS=(
+  nanopi-manager-agent.service
+  nanopi-manager-web.service
+  nanopi-manager-policy.service
+  nanopi-manager-policy.timer
+)
 
 usage() {
   cat <<'EOF'
@@ -112,6 +118,13 @@ fi
 test -f "$WEB_SOURCE" && test -f "$AGENT_SOURCE"
 install -o root -g root -m 0755 "$WEB_SOURCE" "$INSTALL_DIR/nanopi-manager-web"
 install -o root -g root -m 0755 "$AGENT_SOURCE" "$INSTALL_DIR/nanopi-manager-agent"
+
+# A mask left by an earlier installation or manual recovery overrides copied
+# unit files and makes systemctl enable --now fail. Remove persistent and
+# runtime masks before installing fresh units.
+systemctl unmask "${MANAGER_UNITS[@]}" >/dev/null 2>&1 || true
+systemctl unmask --runtime "${MANAGER_UNITS[@]}" >/dev/null 2>&1 || true
+
 install -o root -g root -m 0644 "$REPO_DIR/manager/packaging/systemd/nanopi-manager-agent.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$REPO_DIR/manager/packaging/systemd/nanopi-manager-web.service" /etc/systemd/system/
 install -o root -g root -m 0644 "$REPO_DIR/manager/packaging/systemd/nanopi-manager-policy.service" /etc/systemd/system/
