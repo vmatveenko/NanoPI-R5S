@@ -1,0 +1,28 @@
+[Unit]
+Description=NanoPi Manager privileged agent
+After=local-fs.target
+Before=nanopi-manager-web.service
+
+[Service]
+Type=simple
+User=root
+Group=nanopi-manager
+RuntimeDirectory=nanopi-manager
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/lib/nanopi-manager/nanopi-manager-agent --mode serve
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=false
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,28 @@
+[Unit]
+Description=NanoPi Manager web interface
+After=network.target nanopi-manager-agent.service
+Requires=nanopi-manager-agent.service
+
+[Service]
+Type=simple
+User=nanopi-manager
+Group=nanopi-manager
+EnvironmentFile=-/etc/nanopi-manager/manager.env
+ExecStart=/usr/local/lib/nanopi-manager/nanopi-manager-web
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nanopi-manager
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NanoPi Manager</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/links.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL ROUTER CONTROL</p>
+        <h1>NanoPi Manager</h1>
+      </div>
+      <div id="userArea" class="user-area hidden"><span id="username"></span><button id="logout" class="ghost">Выйти</button></div>
+    </header>
+
+    <section id="authView" class="auth-card">
+      <div class="auth-copy">
+        <span class="status-dot"></span>
+        <p id="authHint">Проверяем состояние службы…</p>
+      </div>
+      <form id="authForm" class="stack hidden">
+        <label>Логин<input id="authUsername" autocomplete="username" minlength="4" maxlength="64" required></label>
+        <label>Пароль<input id="authPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+        <button id="authSubmit" type="submit">Продолжить</button>
+      </form>
+      <p id="authError" class="error"></p>
+    </section>
+
+    <section id="appView" class="hidden">
+      <nav class="steps" aria-label="Разделы">
+        <button data-target="overview" class="active">Обзор</button>
+        <button data-target="router">Маршрутизатор</button>
+        <button data-target="services">Docker и 3x-ui</button>
+        <button data-target="diagnostics">Диагностика</button>
+      </nav>
+
+      <section id="overview" class="page active">
+        <div class="hero card">
+          <div><p class="eyebrow">СОСТОЯНИЕ УСТРОЙСТВА</p><h2 id="hostName">NanoPi</h2><p id="hostMeta" class="muted">Загрузка инвентаризации…</p></div>
+          <button id="refreshAll" class="secondary">Обновить</button>
+        </div>
+        <div id="statusGrid" class="status-grid"></div>
+        <div class="card notice"><strong>Граница доступа</strong><p>Manager и 3x-ui доступны из LAN. WAN использует default-drop; VPN-порты открываются только явно.</p></div>
+      </section>
+
+      <section id="router" class="page">
+        <div class="section-head"><div><p class="eyebrow">ЭТАП 1</p><h2>Linux-маршрутизатор</h2></div><span class="pill">IPv4 only</span></div>
+        <form id="routerForm" class="card form-grid">
+          <label>WAN-интерфейс<select id="wanInterface" required></select></label>
+          <fieldset><legend>LAN-интерфейсы</legend><div id="lanInterfaces" class="checks"></div></fieldset>
+          <label>Имя bridge<input id="bridge" value="br0" required></label>
+          <label>LAN CIDR<input id="lanCidr" value="192.168.10.1/24" required></label>
+          <label>DHCP от<input id="dhcpStart" value="192.168.10.10" required></label>
+          <label>DHCP до<input id="dhcpEnd" value="192.168.10.200" required></label>
+          <label class="wide">DNS для клиентов<input id="dns" value="8.8.8.8, 1.1.1.1" required></label>
+          <label>Режим MAC WAN<select id="macMode"><option value="current">Текущий</option><option value="factory">Заводской</option><option value="manual">Указать вручную</option><option value="random">Случайный локальный</option><option value="clone">Клонировать MAC</option></select></label>
+          <label>MAC WAN<input id="wanMac" placeholder="aa:bb:cc:dd:ee:ff"></label>
+          <label>Порт Manager<input id="managerPort" type="number" min="1" max="65535" value="8080"></label>
+          <label>Порт 3x-ui<input id="panelPort" type="number" min="1" max="65535" value="2053"></label>
+          <label class="wide">Разрешённые WAN-порты<textarea id="wanPorts" rows="4" placeholder="tcp:443 VLESS&#10;udp:8443 Hysteria2"></textarea><small>Одна строка: tcp|udp:порт описание. Порты панелей открыть здесь нельзя.</small></label>
+          <div class="wide actions"><button type="submit">Проверить план</button><button id="applyRouter" type="button" class="danger" disabled>Применить с откатом</button></div>
+        </form>
+        <div id="planCard" class="card hidden"><div class="section-head"><h3>План изменений</h3><span id="planBadge" class="pill">не применён</span></div><div id="planWarnings" class="warnings"></div><pre id="planOutput"></pre></div>
+        <div id="rollbackCard" class="card rollback hidden"><h3>Подтвердите доступ</h3><p>Если эта страница работает после применения, подтвердите конфигурацию. Иначе система откатит её автоматически.</p><div class="countdown" id="countdown">120</div><button id="confirmRouter">Подтвердить</button><button id="rollbackRouter" class="secondary">Откатить сейчас</button></div>
+      </section>
+
+      <section id="services" class="page">
+        <div class="section-head"><div><p class="eyebrow">ЭТАП 2</p><h2>Docker и 3x-ui</h2></div></div>
+        <div class="two-col">
+          <article class="card"><h3>Docker Engine</h3><p class="muted">Установка из официального apt-репозитория Docker.</p><button id="installDocker">Установить / обновить Docker</button></article>
+          <article class="card"><h3>3x-ui</h3><p class="muted">Host network, постоянные данные, NET_ADMIN и /dev/net/tun.</p><div class="button-row"><button data-xui="install">Установить / обновить</button><button data-xui="restart" class="secondary">Перезапустить</button><button data-xui="stop" class="secondary">Остановить</button></div><div class="button-row"><button data-xui="backup" class="secondary">Создать backup</button><button data-xui="restore" class="secondary">Восстановить последний</button></div></article>
+        </div>
+        <article class="card">
+          <p class="eyebrow">ЭТАП 3</p><h3>Xray TUN для LAN</h3>
+          <p class="muted">Создаёт <code>xray0</code> через API 3x-ui. Токен используется только для этого запроса и не сохраняется.</p>
+          <div class="form-grid compact"><label>Локальный URL панели<input id="panelUrl" value="http://127.0.0.1:2053"></label><label>API token 3x-ui<input id="xuiToken" type="password" autocomplete="off"></label><div class="wide actions"><button id="bootstrapTun">Создать / проверить TUN</button></div></div>
+        </article>
+        <p id="serviceResult" class="result"></p>
+      </section>
+
+      <section id="diagnostics" class="page">
+        <div class="section-head"><div><p class="eyebrow">ПРОВЕРКА</p><h2>Диагностика</h2></div><div class="button-row"><a class="button-link" href="/api/diagnostics/export">Экспорт JSON</a><button id="refreshDiagnostics" class="secondary">Обновить</button></div></div>
+        <div id="diagnosticsGrid" class="diag-grid"></div>
+      </section>
+    </section>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

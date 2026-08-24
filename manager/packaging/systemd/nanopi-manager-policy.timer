@@ -1,0 +1,12 @@
+[Unit]
+Description=NanoPi Manager Xray fail-open watchdog
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=10s
+AccuracySec=2s
+Unit=nanopi-manager-policy.service
+
+[Install]
+WantedBy=timers.target
+

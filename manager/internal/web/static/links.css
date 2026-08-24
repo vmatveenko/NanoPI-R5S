@@ -1,0 +1,13 @@
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 16px;
+  border-radius: 11px;
+  background: #233142;
+  color: var(--text);
+  font-weight: 800;
+  text-decoration: none;
+  transition: .15s transform;
+}
+
+.button-link:hover { transform: translateY(-1px); }

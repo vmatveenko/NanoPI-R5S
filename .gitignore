@@ -24,3 +24,9 @@ router-backup-*/
 __pycache__/
 *.pyc
 venv/
+
+# NanoPi Manager build output
+manager/dist/
+manager/*.exe
+manager/nanopi-manager-web
+manager/nanopi-manager-agent

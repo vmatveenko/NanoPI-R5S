@@ -1,509 +1,138 @@
-# NanoPi R5S — Скрипты настройки роутера
+# NanoPi Manager
 
-Набор bash-скриптов для превращения **NanoPi R5S** (Ubuntu / Armbian) в полноценный роутер.
+NanoPi Manager превращает чистую Ubuntu/Armbian ARM64-систему в управляемый IPv4-маршрутизатор с локальным web-интерфейсом, Docker, 3x-ui и Xray TUN.
 
-## Схема сети
+Проект не привязан к именам `eth0`, `eth1`, `eth2`: WAN и несколько LAN-портов выбираются после обнаружения интерфейсов.
 
+## Текущий статус
+
+Ветка `feature/nanopi-manager` содержит первую реализацию итерации 01. Локальные Go-тесты проходят, ARM64/Linux-бинарники собираются, для Linux добавлен CI. Сетевые изменения, TUN и внешний VPN-inbound должны быть проверены вручную на NanoPi.
+
+## Архитектура
+
+```text
+Browser (LAN)
+    |
+    v
+nanopi-manager-web (unprivileged, HTTP :8080)
+    |
+    | typed API over /run/nanopi-manager/agent.sock
+    v
+nanopi-manager-agent (root)
+    |-- Netplan / DHCP / sysctl / nftables
+    |-- Docker / 3x-ui
+    `-- policy routing watchdog
+
+LAN bridge -> nft mark -> ip rule/table 100 -> xray0 -> Xray outbound
+Host traffic ---------------------------------------------> main/direct route
 ```
-                    ┌─────────────────────────┐
-   Интернет ───────►│  eth0  (WAN)            │
-   (от провайдера)  │                         │
-                    │       NanoPi R5S        │
-                    │       (роутер)          │
-                    │                         │
-   Локальная сеть ◄─┤  eth1 ─┐                │
-                    │        ├─ br0  (LAN)    │
-   Локальная сеть ◄─┤  eth2 ─┘                │
-                    └─────────────────────────┘
-```
 
-| Интерфейс | Роль | Описание |
-|-----------|------|----------|
-| `eth0` | WAN | Получает IP по DHCP от провайдера |
-| `eth1` | LAN | Объединён в мост `br0` |
-| `eth2` | LAN | Объединён в мост `br0` |
-| `br0` | LAN bridge | Подсеть по умолчанию `192.168.10.0/24` |
+Web-процесс не принимает произвольные shell-команды. Привилегированный agent предоставляет только фиксированный набор операций.
 
-## Скрипты
+## Возможности
 
-| Скрипт | Описание |
-|--------|----------|
-| `scripts/01-router-setup.sh` | Настройка роутера: netplan, nftables, NAT, DHCP |
-| `scripts/02-singbox-install.sh` | Установка sing-box: TUN, proxy, split DNS |
-| `scripts/03-telegram-bot.sh` | Установка / удаление Telegram-бота |
-| `singbox.sh` | Управление sing-box: серверы, группы, правила, статус |
+- первый вход с созданием одного локального администратора;
+- PBKDF2-SHA256 для пароля, серверные сессии, CSRF и ограничение попыток входа;
+- обнаружение физических интерфейсов и текущего default route;
+- выбор одного WAN и нескольких LAN-портов;
+- bridge, LAN CIDR, DHCP range, DNS и режим MAC WAN;
+- предварительный план и полный diff конфигурационных файлов;
+- backup перед применением и автоматический rollback через 120 секунд;
+- WAN default-drop, панели Manager/3x-ui доступны только из LAN;
+- явный список разрешённых TCP/UDP VPN-портов;
+- установка Docker и управление контейнером 3x-ui;
+- воспроизводимый образ 3x-ui `v3.6.0`, соответствующий проверенному API-адаптеру;
+- создание `xray0` через официальный API 3x-ui;
+- policy routing только для транзитного LAN-трафика;
+- watchdog с fail-open: при остановке Xray правило уходит, LAN возвращается в direct;
+- диагностика основных компонентов;
+- одноразовое удаление прежнего sing-box/Telegram-слоя.
 
-## Быстрый старт
+## Поддерживаемая первая платформа
 
-**Первая установка:**
+- Ubuntu 24.04 / совместимая Armbian;
+- systemd + Netplan;
+- nftables;
+- `arm64` и `amd64` для разработки/тестирования;
+- только IPv4.
+
+Первая аппаратная проверка рассчитана на NanoPi R5S LTS с Ubuntu 24.04.4 и kernel 6.1.141.
+
+## Установка
+
+Установщик использует готовые бинарники из последнего GitHub Release. Go на устройстве для обычной установки не нужен:
 
 ```bash
-git clone https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-router
-cd ~/nanopi-router
-chmod +x scripts/*.sh *.sh
-sudo ./scripts/01-router-setup.sh
+git clone --branch v0.1.0 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
+cd ~/nanopi-manager
+chmod +x scripts/*.sh
+sudo ./scripts/install-manager.sh
 ```
 
-**Переустановка Sing-box:**
+Для установки конкретной версии задайте тег:
 
 ```bash
-cd ~/nanopi-router
-git reset --hard
-git pull
-sudo rm /etc/sing-box/config.json
-chmod +x scripts/*.sh *.sh
-sudo ./scripts/02-singbox-install.sh
+sudo NANOPI_MANAGER_VERSION=v0.1.0 ./scripts/install-manager.sh
 ```
 
-## Что делает `01-router-setup.sh`
-
-1. Проверяет наличие интерфейсов `eth0`, `eth1`, `eth2`
-2. Запрашивает параметры LAN (CIDR, DHCP-диапазон, DNS)
-3. Создаёт бэкап текущих конфигов → `/root/router-backup-<timestamp>`
-4. Устанавливает `nftables` и `isc-dhcp-server`
-5. Настраивает **netplan**: WAN (DHCP) + LAN bridge
-6. Включает **IP forwarding**
-7. Настраивает **nftables**: firewall + NAT masquerade
-8. Настраивает **DHCP-сервер** на `br0`
-9. Проверяет работоспособность сервисов
-
-### Параметры по умолчанию
-
-| Параметр | Значение |
-|----------|----------|
-| LAN IP | `192.168.10.1/24` |
-| DHCP диапазон | `192.168.10.10` — `192.168.10.200` |
-| DNS | `8.8.8.8`, `1.1.1.1` |
-
-Все параметры можно изменить при запуске скрипта.
-
-## sing-box — прозрачный прокси и VPN
-
-[sing-box](https://sing-box.sagernet.org/) — универсальная прокси-платформа с поддержкой VLESS, TUN, rule-based routing и split DNS.
-
-### Архитектура
-
-```
-Устройство в LAN
-      │
-      ▼
-    br0 (LAN bridge)
-      │
-      ▼  (policy routing)
-    tun0 (sing-box TUN)
-      │
-      ▼
-  ┌──────────────────────┐
-  │      sing-box        │
-  │                      │
-  │  route rules:        │
-  │  youtube → VPN       │
-  │  *       → direct    │
-  └──────┬───────┬───────┘
-    VPN выход  Direct выход
-    (VLESS)    (напрямую)
-         │       │
-         ▼       ▼
-        eth0 (WAN) → Интернет
-```
-
-- **TUN** (`tun0`) — прозрачный прокси для всего LAN-трафика. Устройства ничего не настраивают.
-- **Proxy** (SOCKS5 + HTTP, порт 2080) — для устройств/ПО, которые нужно целиком пустить через VPN.
-- **Split DNS** — домены, идущие через VPN, резолвятся через DoH по VPN-туннелю.
-
-### Установка sing-box
+Для разработки можно собрать текущий checkout на устройстве:
 
 ```bash
-sudo ./scripts/02-singbox-install.sh
+sudo NANOPI_MANAGER_BUILD_FROM_SOURCE=1 ./scripts/install-manager.sh
 ```
 
-### Что делает `02-singbox-install.sh`
-
-1. Устанавливает зависимости (`curl`, `jq`)
-2. Определяет подсеть LAN (из `br0`) для корректной маршрутизации
-3. Скачивает последнюю версию sing-box с GitHub
-4. Создаёт systemd-сервис
-5. Запрашивает параметры (порт proxy, TUN-адрес, DNS)
-6. Генерирует базовый конфиг с `route_exclude_address` для LAN
-7. Настраивает `sysctl` (отключает `rp_filter` для TUN)
-8. Добавляет правила `tun0` в nftables (br0↔tun0 в обе стороны)
-9. Запускает sing-box
-
-При повторном запуске: обновляет бинарник, nftables и sysctl, автоматически мигрирует конфиг (добавляет `route_exclude_address`, исправляет DNS) — **VPN/правила сохраняются**.
-
-> **Важно:** после повторного запуска `01-router-setup.sh` необходимо перезапустить `02-singbox-install.sh` для восстановления nftables-правил sing-box.
-
----
-
-### Управление sing-box
-
-Все операции выполняются через единый скрипт `singbox.sh` в корне проекта:
+Также можно передать готовые файлы:
 
 ```bash
-sudo ./singbox.sh
+sudo NANOPI_MANAGER_WEB_BINARY=/path/to/nanopi-manager-web \
+     NANOPI_MANAGER_AGENT_BINARY=/path/to/nanopi-manager-agent \
+     ./scripts/install-manager.sh
 ```
 
-Откроется интерактивное меню:
+Откройте `http://<текущий-IP-NanoPi>:8080` и создайте логин и пароль администратора.
 
-```
-  sing-box · Управление
-  ────────────────────────────────────────────
-  ● active  │  v1.13.5  │  TUN: UP
-  ────────────────────────────────────────────
+> До применения router firewall Manager слушает `0.0.0.0:8080`. После применения порт разрешён с LAN bridge и закрыт с WAN.
 
-    1)  Статус             показать конфигурацию
-    2)  Добавить сервер    VLESS-подключение
-    3)  Создать группу     urltest / selector
-    4)  Добавить правило   маршрутизация трафика
-    5)  Применить          проверить и перезапустить
+Подробности: [установка](docs/installation.md), [архитектура и безопасность](docs/architecture.md), [миграция](docs/migration.md).
 
-    6)  Удалить сервер     убрать outbound
-    7)  Удалить правило    убрать правило
+## Порядок настройки
 
-    0)  Выход
-```
+1. Установить Manager и создать администратора.
+2. В разделе «Маршрутизатор» выбрать WAN/LAN и параметры DHCP.
+3. Проверить план, применить и подтвердить связь за 120 секунд.
+4. Установить Docker.
+5. Установить 3x-ui.
+6. В 3x-ui сменить его стандартные учётные данные и создать API token.
+7. В Manager создать/проверить Xray TUN, передав токен один раз.
+8. Пользовательские VLESS/Hysteria2 inbound и outbound создать в 3x-ui.
+9. В Manager явно добавить соответствующий TCP/UDP-порт в WAN firewall.
 
-Также доступен прямой вызов без меню:
+## Разработка
 
 ```bash
-sudo ./singbox.sh status    # показать статус
-sudo ./singbox.sh apply     # применить конфигурацию
+cd manager
+go test ./...
+go build ./cmd/nanopi-manager-web ./cmd/nanopi-manager-agent
+make build-linux
 ```
 
----
+Бинарники не имеют runtime-зависимости от Go и собираются с `CGO_ENABLED=0`.
 
-### Пошаговая настройка sing-box (примеры)
+## Старый проект
 
-После установки sing-box работает, но весь трафик идёт напрямую.
-Ниже — полный пример настройки с двумя VPN-серверами, failover и умной маршрутизацией.
-
-#### Шаг 1. Добавить VLESS-серверы
-
-Запустите `sudo ./singbox.sh` и выберите пункт **2** (Добавить сервер).
-
-**Способ A — вставить URI-ссылку** (самый быстрый):
-
-```
-  Способ добавления:
-    1) Вставить VLESS URI (vless://...)
-    2) Ввести параметры вручную
-  Выбор [1]: 1
-
-  VLESS URI: vless://uuid@server:443?type=tcp&security=reality&...#NL-Amsterdam
-```
-
-Скрипт автоматически распарсит все параметры и покажет сводку для подтверждения.
-
-**Способ B — ввод вручную** (если нет URI):
-
-```
-  Выбор [1]: 2
-
-  Тег (имя): DE-Frankfurt
-  Сервер: vpn-de.example.com
-  Порт [443]: 443
-  UUID: a1b2c3d4-...
-  Flow []: xtls-rprx-vision
-  Безопасность:  1) none  2) tls  3) reality
-  Выбор [1]: 3
-  ...
-```
-
-Повторите для каждого сервера.
-
-#### Шаг 2. Создать группу (failover + автовыбор)
-
-Выберите пункт **3** (Создать группу):
-
-```
-  VLESS-серверы
-  ──────────────────────────────────────────
-   1  NL-Amsterdam             vpn-nl.example.com:443
-   2  DE-Frankfurt             vpn-de.example.com:443
-
-  Тег группы [proxy]: proxy
-  Тип группы:
-    1) urltest   — автовыбор лучшего + failover
-    2) selector  — ручной выбор
-  Выбор [1]: 1
-  Номера серверов через пробел или 'all':
-  Выбор [all]: all
-```
-
-**Что это даёт:**
-- sing-box каждые 3 минуты пингует оба сервера
-- Автоматически выбирает лучший по latency
-- Если один сервер упал — мгновенно переключается на другой
-- DNS для VPN-доменов резолвится через DoH по VPN-туннелю
-
-#### Шаг 3. Добавить правила маршрутизации
-
-Выберите пункт **4** (Добавить правило):
-
-```
-  Тип правила:
-
-    Ручные (высший приоритет):
-    1) domain          точное совпадение
-    2) domain_suffix   суффикс (*.example.com)
-    3) domain_keyword  ключевое слово
-    4) ip_cidr         подсеть IP
-
-    Rule-set (community списки):
-    5) geosite         категория (youtube, google...)
-    6) geoip           страна по IP (ru, us...)
-
-  Выбор [5]: 5
-
-  Категории geosite:
-    1) youtube    5) twitter    9) openai
-    2) google     6) telegram  10) другое
-    3) facebook   7) netflix
-    4) instagram  8) tiktok
-  Выбор [10]: 1
-
-  Outbound (номер): 3   (proxy)
-```
-
-Скрипт автоматически:
-- Скачает rule-set `geosite-youtube`
-- Добавит правило: `geosite-youtube → proxy`
-- Добавит DNS-правило: `geosite-youtube → dns-vpn` (split DNS)
-
-**Ещё примеры:**
-- Google через VPN: geosite → google → outbound: proxy
-- `*.openai.com` через VPN: domain_suffix → openai.com → outbound: proxy
-- Российские IP напрямую: geoip → ru → outbound: direct
-
-Ручные правила имеют **приоритет выше** чем geosite/geoip.
-
-#### Шаг 4. Применить конфигурацию
-
-Выберите пункт **5** (Применить) — скрипт проверит конфиг и перезапустит сервис.
-
-> Каждая операция добавления/удаления предлагает применить изменения сразу. Если добавляете несколько правил подряд — отвечайте `n`, а в конце примените один раз.
-
-#### Шаг 5. Проверить статус
-
-Выберите пункт **1** (Статус):
-
-```
-  Сервис:          active
-  Версия:          1.13.5
-  TUN:             tun0 (172.19.0.1/30)
-  TUN статус:      UP
-  Proxy:           :2080 (SOCKS5 + HTTP)
-
-  Серверы и группы
-  ──────────────────────────────────────────
-   1  [vless]    NL-Amsterdam           vpn-nl.example.com:443
-   2  [vless]    DE-Frankfurt           vpn-de.example.com:443
-   3  [urltest]  proxy                  NL-Amsterdam, DE-Frankfurt
-   4  [direct]   direct
-   5  [block]    block
-
-  Правила маршрутизации
-  ──────────────────────────────────────────
-   1  action: sniff
-   2  protocol: dns          action: hijack-dns
-   3  inbound: proxy-in           → proxy
-   4  domain_suffix: openai.com   → proxy  [manual]
-   5  rule-set: geosite-youtube   → proxy
-   6  rule-set: geosite-google    → proxy
-   7  rule-set: geoip-ru          → direct
-   8  * (final)                   → direct
-
-  DNS
-  ──────────────────────────────────────────
-  dns-direct:    udp://8.8.8.8  (detour: -)
-  dns-vpn:       https://1.1.1.1  (detour: proxy)
-  ··············································
-  rule-set: geosite-youtube      → dns-vpn
-  rule-set: geosite-google       → dns-vpn
-  domain_suffix: openai.com      → dns-vpn
-  * (final) → dns-direct
-```
-
----
-
-### Использование proxy (SOCKS/HTTP)
-
-Для устройств или программ, которые нужно **целиком** пустить через VPN (весь трафик, не только по правилам), настройте прокси:
-
-| Параметр | Значение |
-|----------|----------|
-| Тип | SOCKS5 или HTTP |
-| Адрес | IP роутера (например `192.168.10.1`) |
-| Порт | `2080` (по умолчанию) |
-
-**Пример настройки в браузере (Firefox):**
-
-Настройки → Сеть → Прокси → Ручная настройка → SOCKS-хост: `192.168.10.1`, Порт: `2080`, SOCKS v5.
-
-**Пример curl через прокси:**
+Скрипты sing-box и Telegram оставлены в истории/репозитории только для переходного периода. Перед новой установкой старый второй слой удаляется отдельной командой:
 
 ```bash
-curl -x socks5://192.168.10.1:2080 https://ifconfig.me
+sudo ./scripts/00-remove-legacy-second-layer.sh
 ```
 
-**Разница TUN vs Proxy:**
+Скрипт создаёт закрытый backup в `/root`, удаляет sing-box, Telegram-бот и legacy `tun0`, сохраняя базовый bridge/DHCP/NAT.
 
-| | TUN (прозрачный) | Proxy (SOCKS/HTTP) |
-|---|---|---|
-| Настройка на клиенте | Не нужна | Нужно прописать прокси |
-| Маршрутизация | По правилам (YouTube → VPN, остальное → direct) | **Весь** трафик через VPN |
-| Для чего | Все устройства в сети | Отдельное устройство/ПО |
+## Ограничения итерации 01
 
----
-
-### Управление сервисом sing-box
-
-```bash
-# Статус
-sudo systemctl status sing-box
-
-# Логи (последние 50 строк)
-sudo journalctl -u sing-box -n 50 --no-pager
-
-# Логи в реальном времени
-sudo journalctl -u sing-box -f
-
-# Перезапуск
-sudo systemctl restart sing-box
-
-# Остановка
-sudo systemctl stop sing-box
-```
-
-### Конфиг sing-box
-
-Конфиг находится в `/etc/sing-box/config.json`. Скрипты управления изменяют его автоматически, но при необходимости можно редактировать вручную:
-
-```bash
-sudo nano /etc/sing-box/config.json
-
-# Проверить валидность
-sudo sing-box check -c /etc/sing-box/config.json
-
-# Применить
-sudo systemctl restart sing-box
-```
-
-Бэкапы конфига сохраняются в `/root/singbox-backup/` при каждом изменении через скрипты.
-
----
-
-## Telegram-бот
-
-Telegram-бот для удалённого управления NanoPi R5S. Полностью повторяет функциональность `singbox.sh` и добавляет управление устройством.
-
-### Возможности
-
-- **sing-box** — статус, добавление/удаление серверов, групп, правил маршрутизации, применение конфигурации
-- **Система** — информация об устройстве (CPU, RAM, диск, температура, IP), перезагрузка
-
-### Безопасность
-
-Первый пользователь, отправивший `/start` боту, автоматически становится администратором. Все остальные пользователи получают отказ в доступе.
-
-### Установка
-
-```bash
-sudo ./scripts/03-telegram-bot.sh install
-```
-
-Скрипт:
-1. Устанавливает Python3 и зависимости
-2. Запрашивает токен Telegram-бота (получить у [@BotFather](https://t.me/BotFather))
-3. Создаёт виртуальное окружение и устанавливает `python-telegram-bot`
-4. Копирует файлы бота в `/opt/nanopi-bot/`
-5. Создаёт systemd-сервис с автозапуском
-
-### Удаление
-
-```bash
-sudo ./scripts/03-telegram-bot.sh uninstall
-```
-
-Полностью удаляет бота: останавливает сервис, убирает автозапуск, удаляет файлы и конфигурацию.
-
-### Обновление
-
-После `git pull` для обновления файлов бота без сброса настроек:
-
-```bash
-sudo ./scripts/03-telegram-bot.sh update
-```
-
-### Управление сервисом
-
-```bash
-sudo systemctl status  nanopi-bot
-sudo systemctl restart nanopi-bot
-sudo journalctl -u nanopi-bot -f
-```
-
-### Структура меню
-
-```
-NanoPi R5S
-├── sing-box — Управление
-│   ├── Статус            конфигурация, серверы, правила, DNS
-│   ├── + Сервер          VLESS URI или ручной ввод
-│   ├── + Группа          urltest / selector
-│   ├── + Правило         geosite, geoip, domain, ip_cidr
-│   ├── Применить         проверка + перезапуск
-│   ├── − Сервер/группа   удаление outbound
-│   └── − Правило         удаление правила
-└── Система
-    ├── Информация        hostname, uptime, CPU, RAM, IP
-    └── Перезагрузка
-```
-
----
-
-## Проброс портов
-
-Для проброса портов отредактируйте `/etc/nftables.conf`, цепочка `prerouting`:
-
-```bash
-# Пример: проброс порта 8080 с WAN на 192.168.10.100:80
-iifname "eth0" tcp dport 8080 dnat to 192.168.10.100:80
-```
-
-Правило `ct status dnat accept` в цепочке `forward` уже разрешает прохождение DNAT-трафика — дополнительных forward-правил добавлять не нужно.
-
-Затем: `sudo systemctl restart nftables`
-
-## SSH-доступ с WAN
-
-По умолчанию SSH с WAN **закрыт**. Чтобы открыть, раскомментируйте строку в `/etc/nftables.conf` → `chain input`:
-
-```bash
-iifname "eth0" tcp dport 22 ct state new accept
-```
-
-## Откат изменений
-
-Бэкап создаётся автоматически в `/root/router-backup-<timestamp>/`. Для отката:
-
-```bash
-# Восстановить netplan
-sudo cp /root/router-backup-*/netplan/*.yaml /etc/netplan/
-sudo netplan apply
-
-# Восстановить nftables
-sudo cp /root/router-backup-*/nftables.conf /etc/
-sudo systemctl restart nftables
-```
-
-## Требования
-
-- **Устройство**: NanoPi R5S
-- **ОС**: Ubuntu 22.04+ / Armbian
-- **Интерфейсы**: `eth0`, `eth1`, `eth2`
-- **Права**: root (sudo)
-
-## Лицензия
-
-MIT
+- HTTP без Caddy/HTTPS;
+- один администратор;
+- WAN только DHCP;
+- PPPoE, IPv6, DNS hijack и публикация Manager в WAN отложены;
+- пользовательские VPN-inbound/outbound настраиваются в 3x-ui;
+- реальное применение сетевой конфигурации выполняйте только при наличии локального доступа к устройству.

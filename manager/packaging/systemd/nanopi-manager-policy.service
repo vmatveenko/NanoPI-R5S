@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcile NanoPi Manager LAN-only Xray policy routing
+After=nanopi-manager-agent.service docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=nanopi-manager
+ExecStart=/usr/local/lib/nanopi-manager/nanopi-manager-agent --mode reconcile
+
