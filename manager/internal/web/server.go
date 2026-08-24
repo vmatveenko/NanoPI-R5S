@@ -28,18 +28,16 @@ type loginAttempt struct {
 }
 
 type Server struct {
-	cfg       config.Config
-	store     *store.Store
-	agent     *AgentClient
-	sessions  *sessions
-	pendingMu sync.Mutex
-	pending   map[string]model.RouterConfig
-	limitMu   sync.Mutex
-	limits    map[string]loginAttempt
+	cfg      config.Config
+	store    *store.Store
+	agent    *AgentClient
+	sessions *sessions
+	limitMu  sync.Mutex
+	limits   map[string]loginAttempt
 }
 
 func NewServer(cfg config.Config, state *store.Store, agent *AgentClient) *Server {
-	return &Server{cfg: cfg, store: state, agent: agent, sessions: newSessions(), pending: map[string]model.RouterConfig{}, limits: map[string]loginAttempt{}}
+	return &Server{cfg: cfg, store: state, agent: agent, sessions: newSessions(), limits: map[string]loginAttempt{}}
 }
 
 func (s *Server) Serve(ctx context.Context) error {
@@ -69,16 +67,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.Handle("GET /api/session", s.requireAuth(http.HandlerFunc(s.handleSession)))
 	mux.Handle("GET /api/state", s.requireAuth(http.HandlerFunc(s.handleState)))
+	mux.Handle("POST /api/password", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handlePassword))))
 	mux.Handle("GET /api/inventory", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/inventory"))))
 	mux.Handle("GET /api/diagnostics", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/diagnostics"))))
 	mux.Handle("GET /api/diagnostics/export", s.requireAuth(http.HandlerFunc(s.handleDiagnosticsExport)))
 	mux.Handle("POST /api/router/plan", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handlePlan))))
 	mux.Handle("POST /api/router/apply", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleApply))))
 	mux.Handle("POST /api/router/confirm", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleConfirm))))
-	mux.Handle("POST /api/router/rollback", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/router/rollback")))))
+	mux.Handle("POST /api/router/rollback", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleRollback))))
+	mux.Handle("GET /api/router/status", s.requireAuth(http.HandlerFunc(s.handleRouterStatus)))
+	mux.Handle("POST /api/router/deactivate", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleDeactivate))))
+	mux.Handle("POST /api/firewall/status", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleFirewallStatus))))
+	mux.Handle("POST /api/firewall/apply", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleFirewallApply))))
 	mux.Handle("POST /api/docker/install", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/docker/install")))))
+	mux.Handle("GET /api/docker/status", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/docker/status"))))
 	mux.Handle("POST /api/xui/action", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/xui/action")))))
 	mux.Handle("POST /api/xui/bootstrap-tun", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/xui/bootstrap-tun")))))
+	mux.Handle("GET /api/manager/releases", s.requireAuth(http.HandlerFunc(s.handleManagerReleases)))
+	mux.Handle("POST /api/manager/update", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/manager/update")))))
 	assets, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 	return s.securityHeaders(s.accessLog(mux))
@@ -160,7 +166,39 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		defaults := model.DefaultRouterConfig()
 		cfg = &defaults
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"routerConfig": cfg})
+	writeJSON(w, http.StatusOK, map[string]any{"routerConfig": cfg, "pendingRouterConfigs": state.PendingRouterConfigs})
+}
+
+func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+		Confirmation    string `json:"confirmation"`
+	}
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	state := s.store.Snapshot()
+	if state.Admin == nil || !auth.Verify(*state.Admin, state.Admin.Username, request.CurrentPassword) {
+		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+	if request.NewPassword != request.Confirmation {
+		writeError(w, http.StatusBadRequest, "password confirmation does not match")
+		return
+	}
+	admin, err := auth.NewAdmin(state.Admin.Username, request.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.store.ChangeAdmin(admin); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.sessions.clear(w)
+	writeJSON(w, http.StatusOK, map[string]bool{"changed": true})
 }
 
 func (s *Server) handleDiagnosticsExport(w http.ResponseWriter, r *http.Request) {
@@ -206,9 +244,10 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.pendingMu.Lock()
-	s.pending[result.RevisionID] = normalized.Config
-	s.pendingMu.Unlock()
+	if err := s.store.SavePendingRouterConfig(result.RevisionID, normalized.Config); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -224,14 +263,109 @@ func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.pendingMu.Lock()
-	cfg, ok := s.pending[request.RevisionID]
-	delete(s.pending, request.RevisionID)
-	s.pendingMu.Unlock()
-	if ok {
-		_ = s.store.SaveRouterConfig(cfg)
+	if _, _, err := s.store.ConfirmPendingRouterConfig(request.RevisionID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"confirmed": true})
+}
+
+func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		RevisionID string `json:"revisionId"`
+	}
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var result any
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/router/rollback", request, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_ = s.store.DeletePendingRouterConfig(request.RevisionID)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleRouterStatus(w http.ResponseWriter, r *http.Request) {
+	var result model.RouterStatus
+	if err := s.agent.Call(r.Context(), http.MethodGet, "/v1/router/status", nil, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	for revision := range s.store.Snapshot().PendingRouterConfigs {
+		if !result.Pending || revision != result.PendingRevision {
+			_ = s.store.DeletePendingRouterConfig(revision)
+		}
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDeactivate(w http.ResponseWriter, r *http.Request) {
+	var request map[string]any
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var result any
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/router/deactivate", request, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	for revision := range s.store.Snapshot().PendingRouterConfigs {
+		_ = s.store.DeletePendingRouterConfig(revision)
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
+	var cfg model.RouterConfig
+	if err := readJSON(r, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var result model.FirewallStatus
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/firewall/status", cfg, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFirewallApply(w http.ResponseWriter, r *http.Request) {
+	var cfg model.RouterConfig
+	if err := readJSON(r, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var normalized model.Plan
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/router/plan", cfg, &normalized); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var result model.FirewallApplyResult
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/firewall/apply", normalized.Config, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := s.store.SaveRouterConfig(normalized.Config); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleManagerReleases(w http.ResponseWriter, r *http.Request) {
+	path := "/v1/manager/releases"
+	if r.URL.Query().Get("prerelease") == "true" {
+		path += "?prerelease=true"
+	}
+	var result model.ReleaseStatus
+	if err := s.agent.Call(r.Context(), http.MethodGet, path, nil, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) proxyGET(path string) http.HandlerFunc {

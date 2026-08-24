@@ -45,6 +45,37 @@ func TestDryRunApplyAndRollback(t *testing.T) {
 	}
 }
 
+func TestDeactivateRestoresBaselineAfterConfirmation(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults()
+	cfg.RootDir = root
+	cfg.StateDir = filepath.Join(root, "state")
+	cfg.DryRun = true
+	service := NewService(cfg, fakeRunner{})
+	routerCfg := model.DefaultRouterConfig()
+	routerCfg.WANInterface = "eth0"
+	routerCfg.LANInterfaces = []string{"eth1", "eth2"}
+	result, err := service.Apply(context.Background(), routerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Confirm(context.Background(), result.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	if !service.RouterStatus().Active {
+		t.Fatal("router mode is not active after confirmation")
+	}
+	if err := service.DeactivateRouter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if service.RouterStatus().Active {
+		t.Fatal("router mode remains active after deactivation")
+	}
+	if _, err := os.Stat(cfg.Rooted("/etc/nftables.conf")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("baseline was not restored: %v", err)
+	}
+}
+
 func TestLocalPanelURL(t *testing.T) {
 	for _, good := range []string{"http://127.0.0.1:2053", "http://localhost:2053/base", "http://[::1]:2053"} {
 		if _, err := validateLocalPanelURL(good); err != nil {

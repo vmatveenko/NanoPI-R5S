@@ -15,14 +15,17 @@
 5. Выполняются `netplan generate`, `dhcpd -t` и `nft -c`.
 6. До `netplan apply` создаётся systemd rollback unit на 120 секунд.
 7. Пользователь подтверждает доступ из web UI; без подтверждения agent восстанавливает backup.
+8. Первый backup сохраняется как постоянная исходная точка. Команда отключения режима маршрутизатора восстанавливает файлы и состояние служб до первого применения.
 
 ## Firewall
 
 - policy input на WAN: drop;
 - loopback, established/related и ICMP разрешены;
 - весь input с LAN bridge разрешён;
-- панели 8080/2053 не добавляются в WAN set;
-- VLESS/Hysteria2 порты входят в WAN set только после явного добавления;
+- 3x-ui не открывается через редактор WAN-правил;
+- Manager по умолчанию закрыт на WAN, но может быть явно открыт на своём текущем TCP-порту с фильтром IPv4/CIDR;
+- VLESS/Hysteria2 и другие TCP/UDP-порты разрешаются отдельными правилами с описанием, состоянием и необязательным списком IPv4/CIDR источников;
+- системные правила доступны в UI только для чтения;
 - forward разрешает LAN→WAN, LAN↔xray0 и established/related;
 - NAT masquerade применяется только на WAN.
 
@@ -42,3 +45,7 @@ Local/host traffic не получает mark и использует main table
 Контейнер использует проверенный стабильный образ `ghcr.io/mhsanaei/3x-ui:v3.6.0`, host network, `/dev/net/tun`, `NET_ADMIN` и `NET_RAW`. Данные находятся в `/opt/nanopi-manager/3x-ui/db`, сертификаты — в `cert`.
 
 TUN создаётся вызовом `/panel/api/inbounds/add` с Bearer API token. Manager принимает только URL loopback (`127.0.0.1`, `localhost`, `::1`), не сохраняет токен и передаёт 3x-ui актуальный формат TUN settings.
+
+## Обновление Manager
+
+Agent получает перечень подходящих GitHub Releases для архитектуры устройства. Выбранный архив проверяется по `checksums.txt` (SHA256), после чего текущие бинарники сохраняются отдельно. Обновление завершает временная копия agent: она заменяет оба бинарника, перезапускает службы и проверяет web endpoint и Unix socket agent. При неуспешной проверке предыдущие бинарники восстанавливаются автоматически.

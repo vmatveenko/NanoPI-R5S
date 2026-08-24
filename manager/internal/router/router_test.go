@@ -30,7 +30,7 @@ func TestBuildPlanUsesDynamicInterfacesAndProtectsPanels(t *testing.T) {
 			netplan = file.Content
 		}
 	}
-	for _, expected := range []string{`iifname "br0"`, `oifname "eth0"`, `elements = { 443 }`, `elements = { 8443 }`, `meta mark set 0x1`, `oifname "xray0"`} {
+	for _, expected := range []string{`iifname "br0"`, `oifname "eth0"`, `tcp dport 443 ct state new accept comment "VLESS"`, `udp dport 8443 ct state new accept comment "Hysteria2"`, `meta mark set 0x1`, `oifname "xray0"`} {
 		if !strings.Contains(nft, expected) {
 			t.Errorf("nftables missing %q", expected)
 		}
@@ -45,6 +45,37 @@ func TestBuildPlanUsesDynamicInterfacesAndProtectsPanels(t *testing.T) {
 		if !strings.Contains(netplan, expected) {
 			t.Errorf("netplan missing %q", expected)
 		}
+	}
+}
+
+func TestWANRulesSupportSourcesDisableAndManagerAccess(t *testing.T) {
+	cfg := validConfig()
+	cfg.ManagerWANAccess = true
+	cfg.ManagerWANSources = []string{"203.0.113.10", "198.51.100.0/24"}
+	cfg.WANPorts = []model.PortRule{
+		{Protocol: "tcp", Port: 443, Description: "VLESS", Sources: []string{"203.0.113.0/24"}},
+		{Protocol: "udp", Port: 8443, Description: "disabled", Disabled: true},
+	}
+	plan, err := BuildPlan(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nft string
+	for _, file := range plan.Files {
+		if file.Path == "/etc/nftables.conf" {
+			nft = file.Content
+		}
+	}
+	for _, expected := range []string{
+		`ip saddr { 198.51.100.0/24, 203.0.113.10 } tcp dport 8080 ct state new accept comment "NanoPi Manager WAN"`,
+		`ip saddr { 203.0.113.0/24 } tcp dport 443 ct state new accept comment "VLESS"`,
+	} {
+		if !strings.Contains(nft, expected) {
+			t.Errorf("nftables missing %q", expected)
+		}
+	}
+	if strings.Contains(nft, "8443") {
+		t.Fatal("disabled rule was rendered")
 	}
 }
 

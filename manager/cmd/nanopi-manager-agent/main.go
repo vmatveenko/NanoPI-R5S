@@ -24,6 +24,8 @@ func main() {
 		err = service.Rollback(ctx, revision)
 	case "reconcile":
 		err = service.ReconcilePolicy(ctx)
+	case "finish-update":
+		err = service.FinishManagerUpdate(ctx)
 	default:
 		err = fmt.Errorf("unsupported mode %q", mode)
 	}

@@ -36,24 +36,28 @@ type Inventory struct {
 }
 
 type PortRule struct {
-	Protocol    string `json:"protocol"`
-	Port        int    `json:"port"`
-	Description string `json:"description,omitempty"`
+	Protocol    string   `json:"protocol"`
+	Port        int      `json:"port"`
+	Description string   `json:"description,omitempty"`
+	Sources     []string `json:"sources,omitempty"`
+	Disabled    bool     `json:"disabled,omitempty"`
 }
 
 type RouterConfig struct {
-	WANInterface  string     `json:"wanInterface"`
-	WANMACMode    string     `json:"wanMacMode"`
-	WANMAC        string     `json:"wanMac,omitempty"`
-	LANInterfaces []string   `json:"lanInterfaces"`
-	Bridge        string     `json:"bridge"`
-	LANCIDR       string     `json:"lanCidr"`
-	DHCPStart     string     `json:"dhcpStart"`
-	DHCPEnd       string     `json:"dhcpEnd"`
-	DNS           []string   `json:"dns"`
-	ManagerPort   int        `json:"managerPort"`
-	PanelPort     int        `json:"panelPort"`
-	WANPorts      []PortRule `json:"wanPorts,omitempty"`
+	WANInterface      string     `json:"wanInterface"`
+	WANMACMode        string     `json:"wanMacMode"`
+	WANMAC            string     `json:"wanMac,omitempty"`
+	LANInterfaces     []string   `json:"lanInterfaces"`
+	Bridge            string     `json:"bridge"`
+	LANCIDR           string     `json:"lanCidr"`
+	DHCPStart         string     `json:"dhcpStart"`
+	DHCPEnd           string     `json:"dhcpEnd"`
+	DNS               []string   `json:"dns"`
+	ManagerPort       int        `json:"managerPort"`
+	ManagerWANAccess  bool       `json:"managerWanAccess"`
+	ManagerWANSources []string   `json:"managerWanSources,omitempty"`
+	PanelPort         int        `json:"panelPort"`
+	WANPorts          []PortRule `json:"wanPorts,omitempty"`
 }
 
 func DefaultRouterConfig() RouterConfig {
@@ -88,6 +92,75 @@ type ApplyResult struct {
 	RevisionID      string    `json:"revisionId"`
 	RollbackDueAt   time.Time `json:"rollbackDueAt"`
 	ConfirmationTTL int       `json:"confirmationTtlSeconds"`
+	ManagerPort     int       `json:"managerPort"`
+	ManagerRestart  bool      `json:"managerRestart"`
+}
+
+type RouterStatus struct {
+	State            string    `json:"state"`
+	Active           bool      `json:"active"`
+	Pending          bool      `json:"pending"`
+	BaselineRevision string    `json:"baselineRevision,omitempty"`
+	PendingRevision  string    `json:"pendingRevision,omitempty"`
+	RollbackDueAt    time.Time `json:"rollbackDueAt,omitempty"`
+}
+
+type FirewallStatus struct {
+	RouterActive bool       `json:"routerActive"`
+	InSync       bool       `json:"inSync"`
+	Rules        []PortRule `json:"rules"`
+	ManagerWAN   bool       `json:"managerWanAccess"`
+	ManagerPort  int        `json:"managerPort"`
+	SystemRules  []string   `json:"systemRules"`
+	Detail       string     `json:"detail,omitempty"`
+}
+
+type FirewallApplyResult struct {
+	Applied bool   `json:"applied"`
+	Message string `json:"message"`
+}
+
+type ContainerStatus struct {
+	Name          string `json:"name"`
+	Image         string `json:"image"`
+	State         string `json:"state"`
+	Status        string `json:"status"`
+	RestartPolicy string `json:"restartPolicy,omitempty"`
+}
+
+type DockerStatus struct {
+	Installed     bool              `json:"installed"`
+	DaemonActive  bool              `json:"daemonActive"`
+	Version       string            `json:"version,omitempty"`
+	ServerVersion string            `json:"serverVersion,omitempty"`
+	Containers    []ContainerStatus `json:"containers"`
+	Error         string            `json:"error,omitempty"`
+}
+
+type ReleaseInfo struct {
+	Version      string    `json:"version"`
+	Name         string    `json:"name"`
+	Prerelease   bool      `json:"prerelease"`
+	PublishedAt  time.Time `json:"publishedAt"`
+	ReleaseURL   string    `json:"releaseUrl"`
+	ArchiveURL   string    `json:"-"`
+	ChecksumsURL string    `json:"-"`
+}
+
+type ReleaseStatus struct {
+	CurrentVersion string        `json:"currentVersion"`
+	Releases       []ReleaseInfo `json:"releases"`
+}
+
+type UpdateRequest struct {
+	Version     string `json:"version"`
+	ConfirmRisk bool   `json:"confirmRisk"`
+}
+
+type UpdateResult struct {
+	Scheduled bool   `json:"scheduled"`
+	Version   string `json:"version"`
+	Message   string `json:"message"`
 }
 
 type ComponentStatus struct {

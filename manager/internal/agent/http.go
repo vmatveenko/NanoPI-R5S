@@ -57,9 +57,16 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/router/apply", s.handleApply)
 	mux.HandleFunc("POST /v1/router/confirm", s.handleConfirm)
 	mux.HandleFunc("POST /v1/router/rollback", s.handleRollback)
+	mux.HandleFunc("GET /v1/router/status", s.handleRouterStatus)
+	mux.HandleFunc("POST /v1/router/deactivate", s.handleRouterDeactivate)
+	mux.HandleFunc("POST /v1/firewall/status", s.handleFirewallStatus)
+	mux.HandleFunc("POST /v1/firewall/apply", s.handleFirewallApply)
 	mux.HandleFunc("POST /v1/docker/install", s.handleDockerInstall)
+	mux.HandleFunc("GET /v1/docker/status", s.handleDockerStatus)
 	mux.HandleFunc("POST /v1/xui/action", s.handleXUIAction)
 	mux.HandleFunc("POST /v1/xui/bootstrap-tun", s.handleBootstrapTUN)
+	mux.HandleFunc("GET /v1/manager/releases", s.handleManagerReleases)
+	mux.HandleFunc("POST /v1/manager/update", s.handleManagerUpdate)
 	mux.HandleFunc("GET /v1/diagnostics", s.handleDiagnostics)
 	return requestLog(mux)
 }
@@ -109,13 +116,48 @@ func (s *Service) handleRollback(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, nil, err)
 		return
 	}
+	managerPort := s.rollbackManagerPort(request.RevisionID)
 	err := s.Rollback(r.Context(), request.RevisionID)
-	writeResponse(w, map[string]bool{"rolledBack": err == nil}, err)
+	writeResponse(w, map[string]any{"rolledBack": err == nil, "managerPort": managerPort}, err)
+}
+
+func (s *Service) handleRouterStatus(w http.ResponseWriter, _ *http.Request) {
+	writeResponse(w, s.RouterStatus(), nil)
+}
+
+func (s *Service) handleRouterDeactivate(w http.ResponseWriter, r *http.Request) {
+	managerPort := s.baselineManagerPort()
+	err := s.DeactivateRouter(r.Context())
+	writeResponse(w, map[string]any{"deactivated": err == nil, "managerPort": managerPort}, err)
+}
+
+func (s *Service) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
+	var cfg model.RouterConfig
+	if err := decodeJSON(r, &cfg); err != nil {
+		writeResponse(w, nil, err)
+		return
+	}
+	value, err := s.FirewallStatus(r.Context(), cfg)
+	writeResponse(w, value, err)
+}
+
+func (s *Service) handleFirewallApply(w http.ResponseWriter, r *http.Request) {
+	var cfg model.RouterConfig
+	if err := decodeJSON(r, &cfg); err != nil {
+		writeResponse(w, nil, err)
+		return
+	}
+	value, err := s.ApplyFirewall(r.Context(), cfg)
+	writeResponse(w, value, err)
 }
 
 func (s *Service) handleDockerInstall(w http.ResponseWriter, r *http.Request) {
 	err := s.DockerInstall(r.Context())
 	writeResponse(w, map[string]bool{"installed": err == nil}, err)
+}
+
+func (s *Service) handleDockerStatus(w http.ResponseWriter, r *http.Request) {
+	writeResponse(w, s.DockerStatus(r.Context()), nil)
 }
 
 func (s *Service) handleXUIAction(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +178,21 @@ func (s *Service) handleBootstrapTUN(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := s.BootstrapTUN(r.Context(), request)
 	writeResponse(w, map[string]string{"message": message}, err)
+}
+
+func (s *Service) handleManagerReleases(w http.ResponseWriter, r *http.Request) {
+	value, err := s.ManagerReleases(r.Context(), r.URL.Query().Get("prerelease") == "true")
+	writeResponse(w, value, err)
+}
+
+func (s *Service) handleManagerUpdate(w http.ResponseWriter, r *http.Request) {
+	var request model.UpdateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeResponse(w, nil, err)
+		return
+	}
+	value, err := s.ScheduleManagerUpdate(r.Context(), request.Version, request.ConfirmRisk)
+	writeResponse(w, value, err)
 }
 
 func (s *Service) handleDiagnostics(w http.ResponseWriter, r *http.Request) {

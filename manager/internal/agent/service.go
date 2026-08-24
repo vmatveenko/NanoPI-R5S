@@ -64,11 +64,12 @@ func (s *Service) Plan(cfg model.RouterConfig) (model.Plan, error) {
 }
 
 func (s *Service) Apply(ctx context.Context, cfg model.RouterConfig) (model.ApplyResult, error) {
+	previousManagerPort := s.configuredManagerPort()
 	plan, err := s.Plan(cfg)
 	if err != nil {
 		return model.ApplyResult{}, err
 	}
-	backup, err := s.createBackup(plan.Files)
+	backup, err := s.createBackup(ctx, plan.Files)
 	if err != nil {
 		return model.ApplyResult{}, fmt.Errorf("backup current configuration: %w", err)
 	}
@@ -89,15 +90,42 @@ func (s *Service) Apply(ctx context.Context, cfg model.RouterConfig) (model.Appl
 		}
 	}
 	if err := s.applyManagedConfiguration(ctx); err != nil {
+		s.cancelRollback(ctx, backup.RevisionID)
 		_ = s.restoreRevision(ctx, backup.RevisionID)
 		return model.ApplyResult{}, err
 	}
+	baselineCreated := false
+	if _, err := os.Stat(s.baselinePath()); errors.Is(err, os.ErrNotExist) {
+		if err := writeJSONAtomic(s.baselinePath(), baselineState{RevisionID: backup.RevisionID, ManagerPort: previousManagerPort}, 0o600); err != nil {
+			s.cancelRollback(ctx, backup.RevisionID)
+			_ = s.restoreRevision(ctx, backup.RevisionID)
+			return model.ApplyResult{}, err
+		}
+		baselineCreated = true
+	}
 	due := time.Now().UTC().Add(rollbackSeconds * time.Second)
-	active := map[string]any{"revisionId": backup.RevisionID, "rollbackDueAt": due}
+	active := activeApply{RevisionID: backup.RevisionID, RollbackDueAt: due, BaselineCreated: baselineCreated, PreviousManagerPort: previousManagerPort}
 	if err := writeJSONAtomic(filepath.Join(s.cfg.StateDir, "active-apply.json"), active, 0o600); err != nil {
+		s.cancelRollback(ctx, backup.RevisionID)
+		if baselineCreated {
+			_ = os.Remove(s.baselinePath())
+		}
+		_ = s.restoreRevision(ctx, backup.RevisionID)
 		return model.ApplyResult{}, err
 	}
-	return model.ApplyResult{RevisionID: backup.RevisionID, RollbackDueAt: due, ConfirmationTTL: rollbackSeconds}, nil
+	restart := previousManagerPort != plan.Config.ManagerPort
+	if restart && !s.cfg.DryRun {
+		if err := s.scheduleWebRestart(ctx, backup.RevisionID); err != nil {
+			s.cancelRollback(ctx, backup.RevisionID)
+			_ = os.Remove(s.activeApplyPath())
+			if baselineCreated {
+				_ = os.Remove(s.baselinePath())
+			}
+			_ = s.restoreRevision(ctx, backup.RevisionID)
+			return model.ApplyResult{}, fmt.Errorf("schedule Manager restart: %w", err)
+		}
+	}
+	return model.ApplyResult{RevisionID: backup.RevisionID, RollbackDueAt: due, ConfirmationTTL: rollbackSeconds, ManagerPort: plan.Config.ManagerPort, ManagerRestart: restart}, nil
 }
 
 func (s *Service) Confirm(ctx context.Context, revision string) error {
@@ -124,8 +152,26 @@ func (s *Service) Rollback(ctx context.Context, revision string) error {
 	if err := s.restoreRevision(ctx, revision); err != nil {
 		return err
 	}
+	if active, err := s.readActiveApply(); err == nil && active.RevisionID == revision && active.BaselineCreated {
+		_ = os.Remove(s.baselinePath())
+	}
 	_ = os.Remove(filepath.Join(s.cfg.StateDir, "active-apply.json"))
 	return nil
+}
+
+func (s *Service) scheduleWebRestart(ctx context.Context, revision string) error {
+	unit := "nanopi-manager-web-restart-" + strings.NewReplacer(":", "-", ".", "-").Replace(revision) + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err := s.runner.Run(ctx, "systemd-run", "--unit", unit, "--on-active", "2s", "systemctl", "restart", "nanopi-manager-web.service")
+	return err
+}
+
+func (s *Service) cancelRollback(ctx context.Context, revision string) {
+	if s.cfg.DryRun {
+		return
+	}
+	unit := rollbackUnit(revision)
+	_, _ = s.runner.Run(ctx, "systemctl", "stop", unit+".timer")
+	_, _ = s.runner.Run(ctx, "systemctl", "stop", unit+".service")
 }
 
 func (s *Service) validateManagedConfiguration(ctx context.Context) error {

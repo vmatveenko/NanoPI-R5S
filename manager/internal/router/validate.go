@@ -114,6 +114,11 @@ func Validate(cfg model.RouterConfig, available []model.Interface) error {
 	if cfg.ManagerPort == cfg.PanelPort {
 		problems = append(problems, "manager and 3x-ui panel ports must differ")
 	}
+	for _, source := range cfg.ManagerWANSources {
+		if !validIPv4Source(source) {
+			problems = append(problems, "invalid Manager WAN source: "+source)
+		}
+	}
 	if err := validateMAC(cfg); err != nil {
 		problems = append(problems, err.Error())
 	}
@@ -131,6 +136,14 @@ func Validate(cfg model.RouterConfig, available []model.Interface) error {
 			problems = append(problems, "duplicate WAN port: "+key)
 		}
 		portKeys[key] = true
+		if len(rule.Description) > 128 {
+			problems = append(problems, "WAN port description is longer than 128 characters")
+		}
+		for _, source := range rule.Sources {
+			if !validIPv4Source(source) {
+				problems = append(problems, "invalid WAN source for "+key+": "+source)
+			}
+		}
 		if protocol == "tcp" && (rule.Port == cfg.ManagerPort || rule.Port == cfg.PanelPort) {
 			problems = append(problems, "management panels cannot be opened through WAN port rules")
 		}
@@ -140,6 +153,18 @@ func Validate(cfg model.RouterConfig, available []model.Interface) error {
 		return errors.New(strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+func validIPv4Source(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.To4() != nil
+	}
+	ip, network, err := net.ParseCIDR(value)
+	return err == nil && ip.To4() != nil && network.IP.To4() != nil
 }
 
 func networksOverlap(a, b *net.IPNet) bool {

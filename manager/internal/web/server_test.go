@@ -67,6 +67,54 @@ func TestFirstLoginFlow(t *testing.T) {
 	response.Body.Close()
 }
 
+func TestChangePasswordInvalidatesSessions(t *testing.T) {
+	state, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(config.Defaults(), state, nil)
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	response, err := client.Post(ts.URL+"/api/setup", "application/json", bytes.NewBufferString(`{"username":"router-admin","password":"old"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var session map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&session); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/password", bytes.NewBufferString(`{"currentPassword":"old","newPassword":"x","confirmation":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", session["csrfToken"].(string))
+	response, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("password change status %d", response.StatusCode)
+	}
+	response, err = client.Get(ts.URL + "/api/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old session status %d", response.StatusCode)
+	}
+	response, err = client.Post(ts.URL+"/api/login", "application/json", bytes.NewBufferString(`{"username":"router-admin","password":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("login with new password status %d", response.StatusCode)
+	}
+}
+
 func TestRouterRoundTripOverAgentSocket(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("covered by Linux CI; Windows temporary directory cleanup races with AF_UNIX")

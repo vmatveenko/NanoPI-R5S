@@ -61,6 +61,13 @@ func (s *sessions) remove(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 }
 
+func (s *sessions) clear(w http.ResponseWriter) {
+	s.mu.Lock()
+	s.items = map[string]session{}
+	s.mu.Unlock()
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+}
+
 func randomToken(size int) string {
 	raw := make([]byte, size)
 	if _, err := rand.Read(raw); err != nil {

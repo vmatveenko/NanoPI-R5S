@@ -24,10 +24,11 @@ jobs:
         working-directory: manager
         run: |
           set -euo pipefail
+          version_ldflags="-s -w -X github.com/vmatveenko/nanopi-r5s/manager/internal/buildinfo.Version=${GITHUB_REF_NAME}"
           for arch in arm64 amd64; do
             mkdir -p "dist/linux-${arch}"
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags='-s -w' -o "dist/linux-${arch}/nanopi-manager-web" ./cmd/nanopi-manager-web
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags='-s -w' -o "dist/linux-${arch}/nanopi-manager-agent" ./cmd/nanopi-manager-agent
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="$version_ldflags" -o "dist/linux-${arch}/nanopi-manager-web" ./cmd/nanopi-manager-web
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="$version_ldflags" -o "dist/linux-${arch}/nanopi-manager-agent" ./cmd/nanopi-manager-agent
             tar -C "dist/linux-${arch}" -czf "dist/nanopi-manager-linux-${arch}.tar.gz" nanopi-manager-web nanopi-manager-agent
           done
           cd dist

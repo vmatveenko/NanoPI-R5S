@@ -20,6 +20,12 @@ func BuildPlan(cfg model.RouterConfig, available []model.Interface) (model.Plan,
 	if cfg.PanelPort == 0 {
 		cfg.PanelPort = model.DefaultPanelPort
 	}
+	cfg.ManagerWANSources = normalizeSources(cfg.ManagerWANSources)
+	for index := range cfg.WANPorts {
+		cfg.WANPorts[index].Protocol = strings.ToLower(strings.TrimSpace(cfg.WANPorts[index].Protocol))
+		cfg.WANPorts[index].Description = strings.TrimSpace(cfg.WANPorts[index].Description)
+		cfg.WANPorts[index].Sources = normalizeSources(cfg.WANPorts[index].Sources)
+	}
 	if cfg.WANMACMode == "random" && cfg.WANMAC == "" {
 		cfg.WANMAC = randomLocalMAC()
 	}
@@ -46,11 +52,16 @@ func BuildPlan(cfg model.RouterConfig, available []model.Interface) (model.Plan,
 		{Path: "/etc/sysctl.d/90-nanopi-manager-router.conf", Content: renderSysctl(), Mode: 0o644},
 		{Path: "/etc/nftables.conf", Content: renderNFTables(cfg), Mode: 0o600},
 		{Path: "/etc/nanopi-manager/router.json", Content: renderConfigJSON(cfg), Mode: 0o600},
+		{Path: "/etc/nanopi-manager/manager.env", Content: renderManagerEnvironment(cfg), Mode: 0o640},
 	}
 	warnings := []string{
 		"Applying network configuration can interrupt the current connection.",
 		"The change must be confirmed within 120 seconds or it will be rolled back.",
-		"Manager and 3x-ui panels remain blocked from WAN.",
+	}
+	if cfg.ManagerWANAccess {
+		warnings = append(warnings, "Manager is exposed on WAN over HTTP without TLS; use source filtering whenever possible.")
+	} else {
+		warnings = append(warnings, "Manager and 3x-ui panels remain blocked from WAN.")
 	}
 	return model.Plan{
 		Config: cfg,
@@ -120,27 +131,21 @@ net.ipv6.conf.default.disable_ipv6=1
 }
 
 func renderNFTables(cfg model.RouterConfig) string {
-	tcpPorts := collectPorts(cfg.WANPorts, "tcp")
-	udpPorts := collectPorts(cfg.WANPorts, "udp")
 	var b strings.Builder
 	b.WriteString("#!/usr/sbin/nft -f\n# Managed by NanoPi Manager.\nflush ruleset\n\n")
 	b.WriteString("table inet nanopi_filter {\n")
-	if len(tcpPorts) > 0 {
-		fmt.Fprintf(&b, "  set wan_tcp_ports { type inet_service; elements = { %s } }\n", joinInts(tcpPorts))
-	}
-	if len(udpPorts) > 0 {
-		fmt.Fprintf(&b, "  set wan_udp_ports { type inet_service; elements = { %s } }\n", joinInts(udpPorts))
-	}
 	b.WriteString("  chain input {\n    type filter hook input priority filter; policy drop;\n")
 	b.WriteString("    iifname \"lo\" accept\n    ct state established,related accept\n    ct state invalid drop\n")
 	b.WriteString("    ip protocol icmp accept\n")
 	fmt.Fprintf(&b, "    iifname \"%s\" accept\n", cfg.Bridge)
 	fmt.Fprintf(&b, "    iifname \"%s\" udp sport 67 udp dport 68 accept\n", cfg.WANInterface)
-	if len(tcpPorts) > 0 {
-		fmt.Fprintf(&b, "    iifname \"%s\" tcp dport @wan_tcp_ports ct state new accept\n", cfg.WANInterface)
+	if cfg.ManagerWANAccess {
+		writeWANAcceptRule(&b, cfg.WANInterface, "tcp", cfg.ManagerPort, cfg.ManagerWANSources, "NanoPi Manager WAN")
 	}
-	if len(udpPorts) > 0 {
-		fmt.Fprintf(&b, "    iifname \"%s\" udp dport @wan_udp_ports ct state new accept\n", cfg.WANInterface)
+	for _, rule := range cfg.WANPorts {
+		if !rule.Disabled {
+			writeWANAcceptRule(&b, cfg.WANInterface, rule.Protocol, rule.Port, rule.Sources, rule.Description)
+		}
 	}
 	b.WriteString("  }\n  chain forward {\n    type filter hook forward priority filter; policy drop;\n")
 	b.WriteString("    ct state established,related accept\n    ct state invalid drop\n")
@@ -156,6 +161,24 @@ func renderNFTables(cfg model.RouterConfig) string {
 	return b.String()
 }
 
+func RenderNFTables(cfg model.RouterConfig) string { return renderNFTables(cfg) }
+
+func writeWANAcceptRule(b *strings.Builder, wan, protocol string, port int, sources []string, description string) {
+	fmt.Fprintf(b, "    iifname \"%s\" ", wan)
+	if len(sources) > 0 {
+		fmt.Fprintf(b, "ip saddr { %s } ", strings.Join(sources, ", "))
+	}
+	fmt.Fprintf(b, "%s dport %d ct state new accept", protocol, port)
+	if description != "" {
+		fmt.Fprintf(b, " comment \"%s\"", strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(description))
+	}
+	b.WriteString("\n")
+}
+
+func renderManagerEnvironment(cfg model.RouterConfig) string {
+	return fmt.Sprintf("# Managed by NanoPi Manager.\nNANOPI_MANAGER_PORT=%d\nNANOPI_MANAGER_STATE_DIR=/var/lib/nanopi-manager\nNANOPI_MANAGER_SOCKET=/run/nanopi-manager/agent.sock\n", cfg.ManagerPort)
+}
+
 func renderConfigJSON(cfg model.RouterConfig) string {
 	// Deliberately small and deterministic; the state store keeps the full JSON.
 	return fmt.Sprintf("{\n  \"wanInterface\": %q,\n  \"bridge\": %q,\n  \"lanCidr\": %q\n}\n", cfg.WANInterface, cfg.Bridge, cfg.LANCIDR)
@@ -167,21 +190,16 @@ func broadcastAddress(network *net.IPNet) string {
 	return net.IPv4(ip[0]|^mask[0], ip[1]|^mask[1], ip[2]|^mask[2], ip[3]|^mask[3]).String()
 }
 
-func collectPorts(rules []model.PortRule, protocol string) []int {
-	var ports []int
-	for _, rule := range rules {
-		if strings.EqualFold(rule.Protocol, protocol) {
-			ports = append(ports, rule.Port)
+func normalizeSources(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
 		}
 	}
-	sort.Ints(ports)
-	return ports
-}
-
-func joinInts(values []int) string {
-	parts := make([]string, len(values))
-	for i, value := range values {
-		parts[i] = fmt.Sprint(value)
-	}
-	return strings.Join(parts, ", ")
+	sort.Strings(result)
+	return result
 }

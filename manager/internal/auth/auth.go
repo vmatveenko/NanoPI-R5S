@@ -23,8 +23,8 @@ func NewAdmin(username, password string) (store.Admin, error) {
 	if len(username) < 4 || len(username) > 64 {
 		return store.Admin{}, errors.New("login must contain 4 to 64 characters")
 	}
-	if len(password) < 12 || len(password) > 256 {
-		return store.Admin{}, errors.New("password must contain 12 to 256 characters")
+	if len(password) == 0 || len(password) > 256 {
+		return store.Admin{}, errors.New("password must contain 1 to 256 characters")
 	}
 	salt := make([]byte, SaltLength)
 	if _, err := rand.Read(salt); err != nil {

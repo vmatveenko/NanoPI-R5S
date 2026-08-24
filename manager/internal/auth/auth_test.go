@@ -22,7 +22,10 @@ func TestPasswordPolicy(t *testing.T) {
 	if _, err := NewAdmin("abc", "a reasonably long passphrase"); err == nil {
 		t.Fatal("short login accepted")
 	}
-	if _, err := NewAdmin("router-admin", "short"); err == nil {
-		t.Fatal("short password accepted")
+	if _, err := NewAdmin("router-admin", ""); err == nil {
+		t.Fatal("empty password accepted")
+	}
+	if _, err := NewAdmin("router-admin", "x"); err != nil {
+		t.Fatalf("non-empty short password rejected: %v", err)
 	}
 }

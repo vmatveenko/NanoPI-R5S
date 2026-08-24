@@ -13,6 +13,9 @@ type Config struct {
 	SocketPath    string
 	RootDir       string
 	AgentBinary   string
+	InstallDir    string
+	ReleaseAPIURL string
+	UpdateDir     string
 	DryRun        bool
 }
 
@@ -30,6 +33,8 @@ func Defaults() Config {
 		SocketPath:    envOr("NANOPI_MANAGER_SOCKET", "/run/nanopi-manager/agent.sock"),
 		RootDir:       envOr("NANOPI_MANAGER_ROOT", "/"),
 		AgentBinary:   envOr("NANOPI_MANAGER_AGENT_BINARY", "/usr/local/lib/nanopi-manager/nanopi-manager-agent"),
+		InstallDir:    envOr("NANOPI_MANAGER_INSTALL_DIR", "/usr/local/lib/nanopi-manager"),
+		ReleaseAPIURL: envOr("NANOPI_MANAGER_RELEASE_API", "https://api.github.com/repos/vmatveenko/NanoPI-R5S"),
 		DryRun:        os.Getenv("NANOPI_MANAGER_DRY_RUN") == "1",
 	}
 }
@@ -42,6 +47,7 @@ func ParseAgent(args []string) (Config, string, string) {
 	fs.StringVar(&cfg.SocketPath, "socket", cfg.SocketPath, "Unix socket path")
 	fs.StringVar(&cfg.RootDir, "root", cfg.RootDir, "filesystem root for managed files")
 	fs.StringVar(&cfg.StateDir, "state-dir", cfg.StateDir, "state directory")
+	fs.StringVar(&cfg.UpdateDir, "update-dir", "", "prepared update directory")
 	fs.BoolVar(&cfg.DryRun, "dry-run", cfg.DryRun, "do not execute system changes")
 	_ = fs.Parse(args)
 	return cfg, *mode, *revision
