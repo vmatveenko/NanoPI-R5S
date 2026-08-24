@@ -3,44 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NanoPi Manager</title>
+  <meta name="theme-color" content="#07090b">
+  <meta name="description" content="Локальная инженерная консоль NanoPi R5S">
+  <title>NanoPi Manager // Dense Rack</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#overview" aria-label="NanoPi Manager"><b>NPM</b><span>//ROUTER</span></a>
-    <div id="userArea" class="top-actions hidden"><span id="username"></span><button id="logout" class="btn quiet">Выйти</button></div>
+    <a class="brand" href="#overview" aria-label="NanoPi Manager"><b>NPM//R5S</b><span>OPS.CONSOLE</span></a>
+    <div id="topIdentity" class="terminal-id">admin@nanopi:~</div>
+    <div id="userArea" class="top-actions hidden">
+      <span class="link-indicator"><i class="pulse"></i><span id="topLink">LINK —</span></span>
+      <span id="username" class="user-name"></span>
+      <button id="logout" class="btn quiet compact">Выйти</button>
+    </div>
   </header>
 
   <main id="authView" class="auth-shell">
-    <section class="auth-card">
+    <section class="auth-card panel">
       <p class="kicker">LOCAL CONTROL PLANE</p>
-      <h1>Управление маршрутизатором</h1>
+      <h1>Доступ к узлу</h1>
       <p id="authHint" class="muted">Проверяем состояние службы…</p>
       <form id="authForm" class="stack hidden">
-        <label>Логин<input id="authUsername" autocomplete="username" maxlength="64" required></label>
-        <label>Пароль<input id="authPassword" type="password" autocomplete="current-password" maxlength="256" required></label>
+        <label><span>Логин</span><input id="authUsername" autocomplete="username" maxlength="64" required></label>
+        <label><span>Пароль</span><input id="authPassword" type="password" autocomplete="current-password" maxlength="256" required></label>
         <button id="authSubmit" class="btn primary" type="submit">Продолжить</button>
       </form>
       <p id="authError" class="message error"></p>
+      <div class="auth-foot"><span>HTTPS recommended</span><span>session protected</span></div>
     </section>
   </main>
 
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
+      <section class="node-tree" aria-label="Текущий узел">
+        <p class="tree-label">NODE TREE</p>
+        <div class="tree-node"><span class="tree-branch">└─</span><div><strong id="sidebarHostname">nanopi-r5s</strong><small id="sidebarAddress">address pending</small></div></div>
+      </section>
       <nav id="nav" aria-label="Разделы">
-        <button data-target="overview" class="active"><i>01</i><span>Обзор</span></button>
-        <button data-target="router"><i>02</i><span>Маршрутизатор</span></button>
-        <button data-target="firewall"><i>03</i><span>Firewall</span></button>
-        <button data-target="docker"><i>04</i><span>Docker</span></button>
-        <button id="xuiTab" data-target="xui" disabled title="Сначала запустите Docker"><i>05</i><span>3x-ui / Xray</span></button>
-        <button data-target="diagnostics"><i>06</i><span>Диагностика</span></button>
+        <button data-target="overview" class="active"><i>01</i><span>Обзор</span><kbd>O</kbd></button>
+        <button data-target="router"><i>02</i><span>Маршрутизатор</span><kbd>R</kbd></button>
+        <button data-target="firewall"><i>03</i><span>Firewall</span><kbd>F</kbd></button>
+        <button data-target="docker"><i>04</i><span>Docker</span><kbd>D</kbd></button>
+        <button id="xuiTab" data-target="xui" disabled title="Сначала запустите Docker"><i>05</i><span>3x-ui / Xray</span><kbd>X</kbd></button>
+        <button data-target="diagnostics"><i>06</i><span>Диагностика</span><kbd>G</kbd></button>
       </nav>
+      <section class="quick-metrics" aria-label="Быстрые метрики">
+        <p class="tree-label">QUICK METRICS</p>
+        <dl><div><dt>LOAD 1M</dt><dd id="quickLoad">—</dd></div><div><dt>MEM</dt><dd id="quickMemory">—</dd></div><div><dt>TEMP</dt><dd id="quickTemp">—</dd></div><div><dt>UPTIME</dt><dd id="quickUptime">—</dd></div></dl>
+      </section>
       <div class="sidebar-foot"><span class="pulse"></span><span id="sidebarStatus">AGENT: CHECKING</span></div>
     </aside>
 
     <main class="content">
-      <div class="page-head"><div><p id="breadcrumb" class="kicker">SYSTEM / OVERVIEW</p><h1 id="pageTitle">Обзор</h1></div><button id="refreshPage" class="btn quiet">Обновить</button></div>
+      <div class="page-head">
+        <div><p id="breadcrumb" class="kicker">/ DEVICE / OVERVIEW</p><h1 id="pageTitle">Обзор</h1></div>
+        <div class="page-tools"><span id="lastSync" class="muted">SYNC —</span><button id="refreshPage" class="btn quiet compact">↻ Обновить</button></div>
+      </div>
 
       <section id="overview" class="page active">
         <div class="status-strip">
@@ -49,51 +68,95 @@
           <div><span>AGENT</span><strong id="overviewAgent">—</strong></div>
           <div><span>VERSION</span><strong id="overviewVersion">—</strong></div>
         </div>
-        <div class="grid two">
-          <article class="panel"><header><div><p class="kicker">DEVICE</p><h2>Система</h2></div></header><dl id="systemFacts" class="facts"></dl></article>
-          <article class="panel"><header><div><p class="kicker">NETWORK</p><h2>Интерфейсы</h2></div></header><div id="interfaceList" class="rows"></div></article>
-          <article class="panel"><header><div><p class="kicker">MANAGER</p><h2>Обновление</h2></div><span id="releaseBadge" class="badge">не проверено</span></header><p id="releaseText" class="muted">Проверка выполняется только по вашей команде.</p><div class="actions"><button id="checkUpdates" class="btn">Проверить версию</button><select id="releaseSelect" class="hidden"></select><button id="updateManager" class="btn primary hidden">Обновить</button></div></article>
-          <article class="panel"><header><div><p class="kicker">ACCOUNT</p><h2>Смена пароля</h2></div></header><form id="passwordForm" class="stack"><label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label><label>Новый пароль<input id="newPassword" type="password" autocomplete="new-password" required></label><label>Повторите новый пароль<input id="confirmPassword" type="password" autocomplete="new-password" required></label><button class="btn" type="submit">Сменить пароль</button></form></article>
+
+        <div class="overview-grid">
+          <article class="panel node-panel">
+            <header><div><p class="kicker">NODE / LIVE</p><h2 id="nodeTitle">nanopi-r5s</h2></div><span class="badge ok">ARM64</span></header>
+            <div class="metric-deck">
+              <div class="metric-tile"><span>LOAD AVERAGE</span><strong id="nodeLoad">—</strong><div id="loadBars" class="load-bars" aria-hidden="true"></div></div>
+              <div class="metric-tile ring-tile"><div id="memoryRing" class="memory-ring"><span id="memoryPercent">—</span></div><div><span>MEMORY</span><strong id="nodeMemory">—</strong></div></div>
+              <div class="metric-tile"><span>THERMAL</span><strong id="nodeTemp">—</strong><small id="nodeUptime">uptime —</small></div>
+            </div>
+            <dl id="systemFacts" class="facts dense"></dl>
+          </article>
+
+          <article class="panel service-panel">
+            <header><div><p class="kicker">SERVICE MATRIX</p><h2>Контрольные службы</h2></div><span id="serviceCount" class="badge">— / —</span></header>
+            <div id="serviceMatrix" class="service-matrix"><p class="muted">Ожидаем диагностику…</p></div>
+          </article>
+        </div>
+
+        <div class="grid two overview-lower">
+          <article class="panel">
+            <header><div><p class="kicker">NETWORK FABRIC</p><h2>Интерфейсы</h2></div><span class="legend"><i class="dot ok"></i>carrier</span></header>
+            <div id="interfaceList" class="rows interface-rows"></div>
+          </article>
+          <article class="panel boundary-panel">
+            <header><div><p class="kicker">SECURITY BOUNDARY</p><h2>Периметр управления</h2></div><span class="badge locked">LOCAL</span></header>
+            <div class="boundary-copy"><span class="shield-mark">//</span><p>Manager работает как непривилегированный web-процесс. Системные операции выполняет отдельный root-agent через Unix socket.</p></div>
+            <div class="boundary-route"><span>WEB</span><i>→</i><span>UNIX SOCKET</span><i>→</i><span>ROOT AGENT</span></div>
+          </article>
+        </div>
+
+        <div class="grid two maintenance-grid">
+          <article class="panel"><header><div><p class="kicker">MANAGER / RELEASE</p><h2>Обновление</h2></div><span id="releaseBadge" class="badge">не проверено</span></header><p id="releaseText" class="muted">Проверка выполняется только по вашей команде.</p><div class="actions"><button id="checkUpdates" class="btn">Проверить версию</button><select id="releaseSelect" class="hidden"></select><button id="updateManager" class="btn primary hidden">Обновить</button></div></article>
+          <article class="panel"><header><div><p class="kicker">ACCOUNT / LOCAL</p><h2>Смена пароля</h2></div></header><form id="passwordForm" class="form-grid password-grid"><label><span>Текущий</span><input id="currentPassword" type="password" autocomplete="current-password" required></label><label><span>Новый</span><input id="newPassword" type="password" autocomplete="new-password" required></label><label><span>Повтор</span><input id="confirmPassword" type="password" autocomplete="new-password" required></label><button class="btn" type="submit">Сменить пароль</button></form></article>
         </div>
       </section>
 
       <section id="router" class="page">
         <div class="section-status"><div><span class="pulse"></span><strong id="routerMode">Состояние неизвестно</strong></div><span id="routerDetail" class="muted"></span></div>
-        <form id="routerForm">
-          <article class="panel"><header><div><p class="kicker">UPLINK</p><h2>WAN</h2></div></header><div class="form-grid"><label class="span-2">WAN-интерфейс<select id="wanInterface" required></select></label><label>MAC-режим<select id="wanMacMode"><option value="current">Текущий MAC</option><option value="factory">Заводской MAC</option><option value="clone">Копировать с другого порта</option><option value="random">Случайный локальный MAC</option><option value="manual">Указать вручную</option></select></label><label>MAC-адрес<input id="wanMac" placeholder="AA:BB:CC:DD:EE:FF"></label></div></article>
-          <article class="panel"><header><div><p class="kicker">LOCAL NETWORK</p><h2>LAN и DHCP</h2></div></header><fieldset><legend>LAN-интерфейсы</legend><div id="lanInterfaces" class="checks"></div></fieldset><div class="form-grid"><label>Bridge<input id="bridge" required></label><label>LAN CIDR<input id="lanCidr" required></label><label>DHCP от<input id="dhcpStart" required></label><label>DHCP до<input id="dhcpEnd" required></label><label class="span-2">DNS, через запятую<input id="dns" required></label></div></article>
-          <article class="panel"><header><div><p class="kicker">CONTROL PLANE</p><h2>Панель Manager</h2></div></header><div class="form-grid"><label>Порт Manager<input id="managerPort" type="number" min="1" max="65535" required></label><label class="switch-line"><input id="managerWanAccess" type="checkbox"><span>Открыть текущий порт Manager на WAN</span></label></div><p class="note">Флажок управляет обычным TCP-правилом. Источники и описание можно изменить во вкладке Firewall.</p></article>
-          <div class="actions sticky-actions"><button id="applyRouter" class="btn primary" type="submit">Применить</button><button id="deactivateRouter" class="btn danger" type="button">Откатить режим маршрутизатора</button><span id="routerMessage" class="message"></span></div>
+        <form id="routerForm" class="router-layout">
+          <div class="router-config">
+            <article class="panel topology-panel">
+              <header><div><p class="kicker">LIVE TOPOLOGY</p><h2>Сетевая схема</h2></div><span class="badge">ROUTED</span></header>
+              <div id="routerTopology" class="topology"><div class="topology-node"><span>WAN</span><strong>—</strong></div><i>→</i><div class="topology-node core"><span>NANOPI</span><strong>br0</strong></div><i>→</i><div class="topology-node"><span>LAN</span><strong>—</strong></div></div>
+            </article>
+            <article class="panel"><header><div><p class="kicker">UPLINK</p><h2>WAN</h2></div><span class="section-code">NET.01</span></header><div class="form-grid"><label class="span-2"><span>WAN-интерфейс</span><select id="wanInterface" required></select></label><label><span>MAC-режим</span><select id="wanMacMode"><option value="current">Текущий MAC</option><option value="factory">Заводской MAC</option><option value="clone">Копировать с другого порта</option><option value="random">Случайный локальный MAC</option><option value="manual">Указать вручную</option></select></label><label><span>MAC-адрес</span><input id="wanMac" placeholder="AA:BB:CC:DD:EE:FF"></label></div></article>
+            <article class="panel"><header><div><p class="kicker">LOCAL NETWORK</p><h2>LAN и DHCP</h2></div><span class="section-code">NET.02</span></header><fieldset><legend>LAN-интерфейсы</legend><div id="lanInterfaces" class="checks"></div></fieldset><div class="form-grid"><label><span>Bridge</span><input id="bridge" required></label><label><span>LAN CIDR</span><input id="lanCidr" required></label><label><span>DHCP от</span><input id="dhcpStart" required></label><label><span>DHCP до</span><input id="dhcpEnd" required></label><label class="span-2"><span>DNS, через запятую</span><input id="dns" required></label></div></article>
+            <article class="panel"><header><div><p class="kicker">CONTROL PLANE</p><h2>Панель Manager</h2></div><span class="section-code">NET.03</span></header><div class="form-grid"><label><span>Порт Manager</span><input id="managerPort" type="number" min="1" max="65535" required></label><label class="switch-line"><input id="managerWanAccess" type="checkbox"><span>Открыть текущий порт Manager на WAN</span></label></div><p class="note">Флажок управляет обычным TCP-правилом. Источники и описание можно изменить во вкладке Firewall.</p></article>
+          </div>
+          <aside class="change-control">
+            <article class="panel sticky-control">
+              <header><div><p class="kicker">CHANGE CONTROL</p><h2>Применение</h2></div><span class="badge warn">120 SEC</span></header>
+              <ol class="control-steps"><li><i>01</i><div><strong>Проверка плана</strong><span>Конфигурация нормализуется и валидируется.</span></div></li><li><i>02</i><div><strong>Атомарная запись</strong><span>Создаётся backup исходных файлов.</span></div></li><li><i>03</i><div><strong>Проверка связи</strong><span>Manager автоматически подтверждает новый адрес.</span></div></li><li><i>04</i><div><strong>Автооткат</strong><span>При потере доступа изменения отменятся.</span></div></li></ol>
+              <div id="rollbackCountdown" class="countdown hidden"><span>ROLLBACK WINDOW</span><strong>02:00</strong></div>
+              <button id="applyRouter" class="btn primary full" type="submit">Применить конфигурацию</button>
+              <button id="deactivateRouter" class="btn danger full" type="button">Откатить режим</button>
+              <p id="routerMessage" class="message"></p>
+            </article>
+          </aside>
         </form>
       </section>
 
       <section id="firewall" class="page">
-        <article class="panel"><header><div><p class="kicker">WAN INPUT</p><h2>Пользовательские правила</h2></div><button id="addRule" class="btn">Добавить правило</button></header><p class="note">Управляются только входящие TCP/UDP-порты. Пустой список источников означает доступ с любого IP. Системные правила показаны только для чтения.</p><div id="firewallRules" class="rule-table"></div><div class="actions"><button id="saveFirewall" class="btn primary">Применить правила</button><button id="refreshFirewall" class="btn quiet">Сверить с устройством</button><span id="firewallMessage" class="message"></span></div></article>
-        <article class="panel"><header><div><p class="kicker">SYSTEM</p><h2>Системные правила</h2></div><span class="badge locked">только чтение</span></header><div id="systemRules" class="rows"></div></article>
+        <div class="managed-banner"><span class="badge locked">MANAGED</span><p>Зона WAN: политика INPUT по умолчанию <strong>drop</strong>. Отображаются только управляемые правила NanoPi Manager.</p></div>
+        <article class="panel"><header><div><p class="kicker">WAN INPUT</p><h2>Пользовательские правила</h2></div><button id="addRule" class="btn">+ Добавить правило</button></header><div class="rule-head"><span>PROTO</span><span>PORT</span><span>DESCRIPTION</span><span>SOURCES</span><span>STATE</span><span></span></div><div id="firewallRules" class="rule-table"></div><div class="actions footer-actions"><button id="saveFirewall" class="btn primary">Применить правила</button><button id="refreshFirewall" class="btn quiet">Сверить с устройством</button><span id="firewallMessage" class="message"></span></div></article>
+        <article class="panel"><header><div><p class="kicker">SYSTEM / IMMUTABLE</p><h2>Системные правила</h2></div><span class="badge locked">только чтение</span></header><div id="systemRules" class="system-rule-grid"></div></article>
       </section>
 
       <section id="docker" class="page">
-        <div class="grid two">
-          <article class="panel"><header><div><p class="kicker">ENGINE</p><h2>Docker</h2></div><span id="dockerBadge" class="badge">—</span></header><dl id="dockerFacts" class="facts"></dl><div class="actions"><button id="installDocker" class="btn primary">Установить / обновить Docker</button><button id="refreshDocker" class="btn quiet">Обновить состояние</button></div></article>
-          <article class="panel"><header><div><p class="kicker">RUNTIME</p><h2>Контейнеры</h2></div></header><div id="containerList" class="rows"></div></article>
+        <div class="grid docker-grid">
+          <article class="panel"><header><div><p class="kicker">ENGINE / HOST</p><h2>Docker runtime</h2></div><span id="dockerBadge" class="badge">—</span></header><dl id="dockerFacts" class="facts"></dl><div class="actions"><button id="installDocker" class="btn primary">Установить / обновить</button><button id="refreshDocker" class="btn quiet">Обновить состояние</button></div><details id="dockerTechnical" class="technical hidden"><summary>Техническая ошибка</summary><pre></pre></details></article>
+          <article class="panel containers-panel"><header><div><p class="kicker">CONTAINER MATRIX</p><h2>Контейнеры</h2></div><span class="legend"><i class="dot ok"></i>running</span></header><div class="table-head container-head"><span>NAME / IMAGE</span><span>RESTART</span><span>STATE</span></div><div id="containerList" class="rows"></div></article>
         </div>
       </section>
 
       <section id="xui" class="page">
-        <article class="panel"><header><div><p class="kicker">PANEL</p><h2>3x-ui</h2></div><span id="xuiBadge" class="badge">—</span></header><div class="form-grid"><label>Порт панели<input id="panelPort" type="number" min="1" max="65535" required></label><label class="switch-line"><input id="panelWanAccess" type="checkbox"><span>Открыть текущий порт панели на WAN</span></label></div><p class="note">Смена порта контейнера и связанного TCP-правила выполняется одной операцией. Ограничения источников меняются во вкладке Firewall.</p><div class="actions"><button id="applyXUISettings" class="btn primary">Применить настройки панели</button><a id="panelLink" class="btn quiet" href="#" target="_blank" rel="noreferrer">Открыть панель</a><span id="xuiSettingsMessage" class="message"></span></div></article>
+        <article class="panel xui-hero"><header><div><p class="kicker">SERVICE / PROXY</p><h2>3x-ui control surface</h2></div><span id="xuiBadge" class="badge">—</span></header><div class="form-grid"><label><span>Порт панели</span><input id="panelPort" type="number" min="1" max="65535" required></label><label class="switch-line"><input id="panelWanAccess" type="checkbox"><span>Открыть текущий порт панели на WAN</span></label></div><p class="note">Смена порта контейнера и связанного TCP-правила выполняется одной операцией.</p><div class="actions"><button id="applyXUISettings" class="btn primary">Применить настройки</button><a id="panelLink" class="btn quiet" href="#" target="_blank" rel="noreferrer">Открыть панель ↗</a><span id="xuiSettingsMessage" class="message"></span></div></article>
         <div class="grid two">
-          <article class="panel"><header><div><p class="kicker">LIFECYCLE</p><h2>Контейнер</h2></div></header><div class="actions wrap"><button data-xui="install" class="btn primary">Установить</button><button data-xui="update" class="btn">Обновить</button><button data-xui="start" class="btn">Запустить</button><button data-xui="stop" class="btn">Остановить</button><button data-xui="remove" class="btn danger">Удалить</button></div><label>ID резервной копии<input id="backupId" placeholder="для восстановления"></label><button data-xui="restore" class="btn">Восстановить</button><p id="xuiMessage" class="message"></p></article>
-          <article class="panel"><header><div><p class="kicker">X-RAY</p><h2>Подготовка TUN</h2></div></header><form id="tunForm" class="stack"><label>URL панели<input id="panelUrl" type="url" required></label><label>API-токен<input id="apiToken" type="password" required></label><button class="btn" type="submit">Подготовить TUN</button></form><p id="tunMessage" class="message"></p></article>
+          <article class="panel"><header><div><p class="kicker">LIFECYCLE</p><h2>Контейнер</h2></div></header><div class="command-grid"><button data-xui="install" class="btn primary">INSTALL</button><button data-xui="update" class="btn">UPDATE</button><button data-xui="start" class="btn">START</button><button data-xui="stop" class="btn">STOP</button><button data-xui="remove" class="btn danger">REMOVE</button></div><label><span>ID резервной копии</span><input id="backupId" placeholder="для восстановления"></label><button data-xui="restore" class="btn">RESTORE</button><p id="xuiMessage" class="message"></p></article>
+          <article class="panel"><header><div><p class="kicker">X-RAY / TUNNEL</p><h2>Подготовка TUN</h2></div><span class="badge">xray0</span></header><form id="tunForm" class="stack"><label><span>URL панели</span><input id="panelUrl" type="url" required></label><label><span>API-токен</span><input id="apiToken" type="password" required></label><button class="btn" type="submit">Подготовить TUN</button></form><p id="tunMessage" class="message"></p></article>
         </div>
       </section>
 
       <section id="diagnostics" class="page">
-        <article class="panel"><header><div><p class="kicker">HEALTH CHECK</p><h2>Диагностика</h2></div><div class="actions"><button id="runDiagnostics" class="btn primary">Запустить</button><a class="btn quiet" href="/api/diagnostics/export">Экспорт JSON</a></div></header><p id="diagnosticsTime" class="muted">Проверка ещё не запускалась.</p><div id="diagnosticsList" class="rows"></div></article>
+        <article class="panel diagnostics-panel"><header><div><p class="kicker">HEALTH CHECK / CURRENT</p><h2>Матрица диагностики</h2></div><div class="actions"><button id="runDiagnostics" class="btn primary">Запустить</button><a class="btn quiet" href="/api/diagnostics/export">Экспорт JSON</a></div></header><p id="diagnosticsTime" class="muted">Проверка ещё не запускалась.</p><div class="diagnostic-head"><span>COMPONENT</span><span>SUMMARY</span><span>STATE</span></div><div id="diagnosticsList" class="diagnostic-grid"></div></article>
       </section>
     </main>
   </div>
 
-  <div id="toast" class="toast hidden" role="status"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="/app.js" defer></script>
 </body>
 </html>

@@ -53,6 +53,7 @@ func (s *Service) Serve(ctx context.Context) error {
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/inventory", s.handleInventory)
+	mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
 	mux.HandleFunc("POST /v1/router/plan", s.handlePlan)
 	mux.HandleFunc("POST /v1/router/apply", s.handleApply)
 	mux.HandleFunc("POST /v1/router/confirm", s.handleConfirm)
@@ -75,6 +76,10 @@ func (s *Service) Handler() http.Handler {
 func (s *Service) handleInventory(w http.ResponseWriter, _ *http.Request) {
 	value, err := s.Inventory()
 	writeResponse(w, value, err)
+}
+
+func (s *Service) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	writeResponse(w, s.Metrics(), nil)
 }
 
 func (s *Service) handlePlan(w http.ResponseWriter, r *http.Request) {

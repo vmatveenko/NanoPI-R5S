@@ -35,6 +35,25 @@ type Inventory struct {
 	Warnings       []string    `json:"warnings,omitempty"`
 }
 
+type LinkMetric struct {
+	Name      string `json:"name"`
+	Carrier   bool   `json:"carrier"`
+	SpeedMbps int    `json:"speedMbps,omitempty"`
+}
+
+type SystemMetrics struct {
+	CollectedAt       time.Time    `json:"collectedAt"`
+	UptimeSeconds     int64        `json:"uptimeSeconds"`
+	Load1             float64      `json:"load1"`
+	Load5             float64      `json:"load5"`
+	Load15            float64      `json:"load15"`
+	MemoryTotalBytes  uint64       `json:"memoryTotalBytes"`
+	MemoryUsedBytes   uint64       `json:"memoryUsedBytes"`
+	MemoryUsedPercent float64      `json:"memoryUsedPercent"`
+	TemperatureC      *float64     `json:"temperatureC,omitempty"`
+	Links             []LinkMetric `json:"links"`
+}
+
 type PortRule struct {
 	Protocol    string   `json:"protocol"`
 	Port        int      `json:"port"`

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/auth"
+	"github.com/vmatveenko/nanopi-r5s/manager/internal/buildinfo"
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/config"
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/model"
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/store"
@@ -70,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/state", s.requireAuth(http.HandlerFunc(s.handleState)))
 	mux.Handle("POST /api/password", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handlePassword))))
 	mux.Handle("GET /api/inventory", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/inventory"))))
+	mux.Handle("GET /api/metrics", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/metrics"))))
 	mux.Handle("GET /api/diagnostics", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/diagnostics"))))
 	mux.Handle("GET /api/diagnostics/export", s.requireAuth(http.HandlerFunc(s.handleDiagnosticsExport)))
 	mux.Handle("POST /api/router/plan", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handlePlan))))
@@ -94,7 +96,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) handleBootstrap(w http.ResponseWriter, _ *http.Request) {
 	state := s.store.Snapshot()
-	writeJSON(w, http.StatusOK, map[string]any{"initialized": state.Admin != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"initialized": state.Admin != nil, "version": buildinfo.Version})
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
