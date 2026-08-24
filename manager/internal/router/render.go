@@ -40,7 +40,6 @@ func BuildPlan(cfg model.RouterConfig, available []model.Interface) (model.Plan,
 	broadcast := broadcastAddress(lanNet)
 
 	files := []model.FileChange{
-		{Path: "/etc/netplan/01-router.yaml", Content: "# Superseded by /etc/netplan/60-nanopi-manager.yaml.\n", Mode: 0o600},
 		{Path: "/etc/netplan/60-nanopi-manager.yaml", Content: renderNetplan(cfg), Mode: 0o600},
 		{Path: "/etc/dhcp/dhcpd.conf", Content: renderDHCP(cfg, network, mask, broadcast, lanIP.String()), Mode: 0o644},
 		{Path: "/etc/default/isc-dhcp-server", Content: fmt.Sprintf("INTERFACESv4=\"%s\"\nINTERFACESv6=\"\"\n", cfg.Bridge), Mode: 0o644},

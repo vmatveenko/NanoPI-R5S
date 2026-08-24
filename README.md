@@ -46,7 +46,6 @@ Web-процесс не принимает произвольные shell-ком
 - policy routing только для транзитного LAN-трафика;
 - watchdog с fail-open: при остановке Xray правило уходит, LAN возвращается в direct;
 - диагностика основных компонентов;
-- одноразовое удаление прежнего sing-box/Telegram-слоя.
 
 ## Поддерживаемая первая платформа
 
@@ -63,16 +62,16 @@ Web-процесс не принимает произвольные shell-ком
 Установщик использует готовые бинарники из последнего GitHub Release. Go на устройстве для обычной установки не нужен:
 
 ```bash
-git clone --branch v0.1.0 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
+git clone --branch v0.1.1 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
 cd ~/nanopi-manager
-chmod +x scripts/*.sh
-sudo ./scripts/install-manager.sh
+chmod +x scripts/install-manager.sh
+sudo ./scripts/install-manager.sh install
 ```
 
 Для установки конкретной версии задайте тег:
 
 ```bash
-sudo NANOPI_MANAGER_VERSION=v0.1.0 ./scripts/install-manager.sh
+sudo NANOPI_MANAGER_VERSION=v0.1.1 ./scripts/install-manager.sh install
 ```
 
 Для разработки можно собрать текущий checkout на устройстве:
@@ -86,14 +85,14 @@ sudo NANOPI_MANAGER_BUILD_FROM_SOURCE=1 ./scripts/install-manager.sh
 ```bash
 sudo NANOPI_MANAGER_WEB_BINARY=/path/to/nanopi-manager-web \
      NANOPI_MANAGER_AGENT_BINARY=/path/to/nanopi-manager-agent \
-     ./scripts/install-manager.sh
+     ./scripts/install-manager.sh install
 ```
 
 Откройте `http://<текущий-IP-NanoPi>:8080` и создайте логин и пароль администратора.
 
 > До применения router firewall Manager слушает `0.0.0.0:8080`. После применения порт разрешён с LAN bridge и закрыт с WAN.
 
-Подробности: [установка](docs/installation.md), [архитектура и безопасность](docs/architecture.md), [миграция](docs/migration.md).
+Подробности: [установка](docs/installation.md), [архитектура и безопасность](docs/architecture.md).
 
 ## Порядок настройки
 
@@ -117,16 +116,6 @@ make build-linux
 ```
 
 Бинарники не имеют runtime-зависимости от Go и собираются с `CGO_ENABLED=0`.
-
-## Старый проект
-
-Скрипты sing-box и Telegram оставлены в истории/репозитории только для переходного периода. Перед новой установкой старый второй слой удаляется отдельной командой:
-
-```bash
-sudo ./scripts/00-remove-legacy-second-layer.sh
-```
-
-Скрипт создаёт закрытый backup в `/root`, удаляет sing-box, Telegram-бот и legacy `tun0`, сохраняя базовый bridge/DHCP/NAT.
 
 ## Ограничения итерации 01
 

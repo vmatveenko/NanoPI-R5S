@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install NanoPi Manager from local binaries/source or a GitHub release.
+# Install or uninstall NanoPi Manager.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -9,10 +9,45 @@ STATE_DIR="/var/lib/nanopi-manager"
 CONFIG_DIR="/etc/nanopi-manager"
 RELEASE_REPO="vmatveenko/NanoPI-R5S"
 
+usage() {
+  cat <<'EOF'
+Использование:
+  sudo ./scripts/install-manager.sh [install]
+  sudo ./scripts/install-manager.sh uninstall
+
+Команда install используется по умолчанию.
+EOF
+}
+
 if [ "${EUID}" -ne 0 ]; then
   echo "Запустите от root: sudo $0" >&2
   exit 1
 fi
+
+COMMAND="${1:-install}"
+case "$COMMAND" in
+  install) ;;
+  uninstall)
+    systemctl disable --now nanopi-manager-policy.timer nanopi-manager-web.service nanopi-manager-agent.service 2>/dev/null || true
+    for unit in nanopi-manager-policy.timer nanopi-manager-policy.service nanopi-manager-web.service nanopi-manager-agent.service; do
+      rm -f -- "/etc/systemd/system/$unit"
+    done
+    rm -f -- /run/nanopi-manager/agent.sock
+    rm -rf -- "$INSTALL_DIR"
+    systemctl daemon-reload
+    echo "NanoPi Manager удалён."
+    echo "Сетевые настройки, данные 3x-ui, резервные копии и $STATE_DIR сохранены."
+    exit 0
+    ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
 
 case "$(uname -m)" in
   aarch64|arm64) RELEASE_ARCH="arm64" ;;

@@ -12,17 +12,17 @@
 ```bash
 sudo apt-get update
 sudo apt-get install -y git
-git clone --branch v0.1.0 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
+git clone --branch v0.1.1 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
 cd ~/nanopi-manager
-chmod +x scripts/*.sh
-sudo ./scripts/install-manager.sh
+chmod +x scripts/install-manager.sh
+sudo ./scripts/install-manager.sh install
 systemctl status nanopi-manager-agent nanopi-manager-web --no-pager
 ```
 
 По умолчанию установщик скачивает готовые бинарники `arm64` или `amd64` из последнего GitHub Release. Для фиксированной версии:
 
 ```bash
-sudo NANOPI_MANAGER_VERSION=v0.1.0 ./scripts/install-manager.sh
+sudo NANOPI_MANAGER_VERSION=v0.1.1 ./scripts/install-manager.sh install
 ```
 
 Сборка текущего checkout вместо загрузки Release включается явно:
@@ -57,7 +57,7 @@ sudo journalctl -u nanopi-manager-policy.service -n 100 --no-pager
 ## Удаление Manager
 
 ```bash
-sudo ./scripts/uninstall-manager.sh
+sudo ./scripts/install-manager.sh uninstall
 ```
 
 Удаляются службы и бинарники. Сеть, данные 3x-ui и backup сохраняются, чтобы удаление панели не превратилось в разрушительную операцию.

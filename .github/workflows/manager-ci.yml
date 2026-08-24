@@ -5,13 +5,11 @@ on:
     paths:
       - "manager/**"
       - "scripts/install-manager.sh"
-      - "scripts/uninstall-manager.sh"
       - ".github/workflows/manager-ci.yml"
   pull_request:
     paths:
       - "manager/**"
       - "scripts/install-manager.sh"
-      - "scripts/uninstall-manager.sh"
 
 permissions:
   contents: read
@@ -40,5 +38,4 @@ jobs:
           go build -trimpath -o /tmp/nanopi-manager-agent ./cmd/nanopi-manager-agent
       - name: Check shell syntax
         working-directory: .
-        run: bash -n scripts/00-remove-legacy-second-layer.sh scripts/install-manager.sh scripts/uninstall-manager.sh
-
+        run: bash -n scripts/install-manager.sh
