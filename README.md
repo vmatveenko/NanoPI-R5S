@@ -66,7 +66,7 @@ Web-процесс не принимает произвольные shell-ком
 Установщик использует готовые бинарники из последнего GitHub Release. Go на устройстве для обычной установки не нужен:
 
 ```bash
-git clone --branch v0.2.0 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
+git clone --branch v0.3.2 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
 cd ~/nanopi-manager
 chmod +x scripts/install-manager.sh
 sudo ./scripts/install-manager.sh install
@@ -75,7 +75,7 @@ sudo ./scripts/install-manager.sh install
 Для установки конкретной версии задайте тег:
 
 ```bash
-sudo NANOPI_MANAGER_VERSION=v0.2.0 ./scripts/install-manager.sh install
+sudo NANOPI_MANAGER_VERSION=v0.3.2 ./scripts/install-manager.sh install
 ```
 
 Для разработки можно собрать текущий checkout на устройстве:
