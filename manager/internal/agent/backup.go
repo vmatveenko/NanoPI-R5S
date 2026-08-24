@@ -72,35 +72,9 @@ func (s *Service) createBackup(ctx context.Context, files []model.FileChange) (b
 }
 
 func (s *Service) restoreRevision(ctx context.Context, revision string) error {
-	if revision == "" || strings.ContainsAny(revision, `/\\`) {
-		return errors.New("invalid revision identifier")
-	}
-	dir := filepath.Join(s.cfg.StateDir, "backups", revision)
-	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	manifest, err := s.restoreRevisionFiles(revision)
 	if err != nil {
-		return fmt.Errorf("read backup manifest: %w", err)
-	}
-	var manifest backupManifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return err
-	}
-	for _, entry := range manifest.Entries {
-		target := s.cfg.Rooted(entry.Path)
-		if entry.Existed {
-			content, err := os.ReadFile(filepath.Join(dir, entry.Backup))
-			if err != nil {
-				return err
-			}
-			mode := os.FileMode(entry.Mode)
-			if mode == 0 {
-				mode = 0o600
-			}
-			if err := writeFileAtomic(target, content, mode); err != nil {
-				return err
-			}
-		} else if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
 	}
 	if s.cfg.DryRun {
 		return nil
@@ -147,6 +121,40 @@ func (s *Service) restoreRevision(ctx context.Context, revision string) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) restoreRevisionFiles(revision string) (backupManifest, error) {
+	if revision == "" || strings.ContainsAny(revision, `/\\`) {
+		return backupManifest{}, errors.New("invalid revision identifier")
+	}
+	dir := filepath.Join(s.cfg.StateDir, "backups", revision)
+	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return backupManifest{}, fmt.Errorf("read backup manifest: %w", err)
+	}
+	var manifest backupManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return backupManifest{}, err
+	}
+	for _, entry := range manifest.Entries {
+		target := s.cfg.Rooted(entry.Path)
+		if entry.Existed {
+			content, err := os.ReadFile(filepath.Join(dir, entry.Backup))
+			if err != nil {
+				return backupManifest{}, err
+			}
+			mode := os.FileMode(entry.Mode)
+			if mode == 0 {
+				mode = 0o600
+			}
+			if err := writeFileAtomic(target, content, mode); err != nil {
+				return backupManifest{}, err
+			}
+		} else if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return backupManifest{}, err
+		}
+	}
+	return manifest, nil
 }
 
 func writeFileAtomic(path string, content []byte, mode os.FileMode) error {

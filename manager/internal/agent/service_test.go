@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/config"
@@ -73,6 +74,57 @@ func TestDeactivateRestoresBaselineAfterConfirmation(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.Rooted("/etc/nftables.conf")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("baseline was not restored: %v", err)
+	}
+}
+
+func TestApplyXUISettingsUpdatesComposeAndActiveFirewall(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults()
+	cfg.RootDir = root
+	cfg.StateDir = filepath.Join(root, "state")
+	cfg.DryRun = true
+	service := NewService(cfg, fakeRunner{})
+	routerCfg := model.DefaultRouterConfig()
+	routerCfg.WANInterface = "eth0"
+	routerCfg.LANInterfaces = []string{"eth1", "eth2"}
+	result, err := service.Apply(context.Background(), routerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Confirm(context.Background(), result.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	next := routerCfg
+	next.WANPorts = []model.PortRule{{Protocol: "tcp", Port: 3053, Description: "3x-ui panel"}}
+	settings, err := service.ApplyXUISettings(context.Background(), model.XUISettingsApplyRequest{PreviousConfig: routerCfg, Config: next, PreviousPort: 2053, PanelPort: 3053})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settings.Applied || !settings.WANAccess {
+		t.Fatalf("unexpected settings result: %#v", settings)
+	}
+	compose, err := os.ReadFile(cfg.Rooted("/opt/nanopi-manager/3x-ui/compose.yaml"))
+	if err != nil || !strings.Contains(string(compose), `XUI_PORT: "3053"`) {
+		t.Fatalf("compose port not updated: %v %s", err, compose)
+	}
+	nft, err := os.ReadFile(cfg.Rooted("/etc/nftables.conf"))
+	if err != nil || !strings.Contains(string(nft), "tcp dport 3053") {
+		t.Fatalf("firewall port not updated: %v %s", err, nft)
+	}
+}
+
+func TestFirewallStatusIsAvailableBeforeRouterSetup(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.RootDir = t.TempDir()
+	cfg.StateDir = filepath.Join(cfg.RootDir, "state")
+	cfg.DryRun = true
+	service := NewService(cfg, fakeRunner{})
+	status, err := service.FirewallStatus(context.Background(), model.DefaultRouterConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.RouterActive || len(status.SystemRules) == 0 {
+		t.Fatalf("unexpected pre-setup status: %#v", status)
 	}
 }
 

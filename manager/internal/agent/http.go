@@ -64,6 +64,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/docker/install", s.handleDockerInstall)
 	mux.HandleFunc("GET /v1/docker/status", s.handleDockerStatus)
 	mux.HandleFunc("POST /v1/xui/action", s.handleXUIAction)
+	mux.HandleFunc("POST /v1/xui/settings", s.handleXUISettings)
 	mux.HandleFunc("POST /v1/xui/bootstrap-tun", s.handleBootstrapTUN)
 	mux.HandleFunc("GET /v1/manager/releases", s.handleManagerReleases)
 	mux.HandleFunc("POST /v1/manager/update", s.handleManagerUpdate)
@@ -168,6 +169,16 @@ func (s *Service) handleXUIAction(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := s.XUIAction(r.Context(), request, request.PanelPort)
 	writeResponse(w, map[string]string{"message": message}, err)
+}
+
+func (s *Service) handleXUISettings(w http.ResponseWriter, r *http.Request) {
+	var request model.XUISettingsApplyRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeResponse(w, nil, err)
+		return
+	}
+	value, err := s.ApplyXUISettings(r.Context(), request)
+	writeResponse(w, value, err)
 }
 
 func (s *Service) handleBootstrapTUN(w http.ResponseWriter, r *http.Request) {

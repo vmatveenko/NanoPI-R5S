@@ -158,7 +158,7 @@ func TestRouterRoundTripOverAgentSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	requestBody := []byte(`{"wanInterface":"eth0","wanMacMode":"current","lanInterfaces":["eth1","eth2"],"bridge":"br0","lanCidr":"192.168.10.1/24","dhcpStart":"192.168.10.10","dhcpEnd":"192.168.10.200","dns":["8.8.8.8"],"managerPort":8080,"panelPort":2053}`)
+	requestBody := []byte(`{"wanInterface":"eth0","wanMacMode":"current","lanInterfaces":["eth1","eth2"],"bridge":"br0","lanCidr":"192.168.10.1/24","dhcpStart":"192.168.10.10","dhcpEnd":"192.168.10.200","dns":["8.8.8.8"],"managerPort":8080,"managerWanAccess":true}`)
 	post := func(path string, body []byte) map[string]any {
 		req, _ := http.NewRequest(http.MethodPost, ts.URL+path, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -185,9 +185,26 @@ func TestRouterRoundTripOverAgentSocket(t *testing.T) {
 	}
 	apply := post("/api/router/apply", requestBody)
 	revision := apply["revisionId"].(string)
-	confirmBody, _ := json.Marshal(map[string]string{"revisionId": revision})
-	confirmed := post("/api/router/confirm", confirmBody)
-	if confirmed["confirmed"] != true {
+	token, ok := apply["confirmationToken"].(string)
+	if !ok || token == "" {
+		t.Fatal("one-time confirmation token missing")
+	}
+	confirmBody, _ := json.Marshal(map[string]string{"revisionId": revision, "token": token})
+	confirmRequest, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/router/confirm-access", bytes.NewReader(confirmBody))
+	confirmRequest.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	confirmResponse, err := http.DefaultClient.Do(confirmRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer confirmResponse.Body.Close()
+	if confirmResponse.StatusCode != http.StatusOK || confirmResponse.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("automatic confirmation returned %d", confirmResponse.StatusCode)
+	}
+	var confirmed map[string]any
+	if err := json.NewDecoder(confirmResponse.Body).Decode(&confirmed); err != nil || confirmed["confirmed"] != true {
 		t.Fatal("apply was not confirmed")
+	}
+	if state.Snapshot().RouterConfig == nil || len(state.Snapshot().RouterConfig.WANPorts) != 1 {
+		t.Fatal("manager access was not stored as an ordinary firewall rule")
 	}
 }

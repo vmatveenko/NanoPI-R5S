@@ -64,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.handleBootstrap)
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/router/confirm-access", s.handleConfirmAccess)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.Handle("GET /api/session", s.requireAuth(http.HandlerFunc(s.handleSession)))
 	mux.Handle("GET /api/state", s.requireAuth(http.HandlerFunc(s.handleState)))
@@ -81,7 +82,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/firewall/apply", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleFirewallApply))))
 	mux.Handle("POST /api/docker/install", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/docker/install")))))
 	mux.Handle("GET /api/docker/status", s.requireAuth(http.HandlerFunc(s.proxyGET("/v1/docker/status"))))
-	mux.Handle("POST /api/xui/action", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/xui/action")))))
+	mux.Handle("POST /api/xui/action", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleXUIAction))))
+	mux.Handle("POST /api/xui/settings", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.handleXUISettings))))
 	mux.Handle("POST /api/xui/bootstrap-tun", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/xui/bootstrap-tun")))))
 	mux.Handle("GET /api/manager/releases", s.requireAuth(http.HandlerFunc(s.handleManagerReleases)))
 	mux.Handle("POST /api/manager/update", s.requireAuth(s.requireCSRF(http.HandlerFunc(s.proxyPOST("/v1/manager/update")))))
@@ -166,7 +168,15 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		defaults := model.DefaultRouterConfig()
 		cfg = &defaults
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"routerConfig": cfg, "pendingRouterConfigs": state.PendingRouterConfigs})
+	xui := state.XUIConfig
+	if xui.PanelPort == 0 {
+		xui = model.DefaultXUIConfig()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"routerConfig":         cfg,
+		"xuiConfig":            map[string]any{"panelPort": xui.PanelPort, "wanAccess": model.TCPPortOpen(cfg.WANPorts, xui.PanelPort)},
+		"pendingRouterConfigs": state.PendingRouterConfigs,
+	})
 }
 
 func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +230,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	cfg = s.normalizeRouterRequest(cfg)
 	var result model.Plan
 	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/router/plan", cfg, &result); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -234,6 +245,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	cfg = s.normalizeRouterRequest(cfg)
 	var normalized model.Plan
 	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/router/plan", cfg, &normalized); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -244,11 +256,43 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.store.SavePendingRouterConfig(result.RevisionID, normalized.Config); err != nil {
+	token := randomToken(32)
+	if err := s.store.SavePendingRouterApply(result.RevisionID, normalized.Config, token, result.RollbackDueAt); err != nil {
+		var ignored any
+		_ = s.agent.Call(context.Background(), http.MethodPost, "/v1/router/rollback", map[string]string{"revisionId": result.RevisionID}, &ignored)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	result.ConfirmationToken = token
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleConfirmAccess(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	var request struct {
+		RevisionID string `json:"revisionId"`
+		Token      string `json:"token"`
+	}
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid confirmation")
+		return
+	}
+	if !s.store.ValidPendingConfirmation(request.RevisionID, request.Token, time.Now()) {
+		writeError(w, http.StatusForbidden, "confirmation expired or invalid")
+		return
+	}
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/router/confirm", map[string]string{"revisionId": request.RevisionID}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if _, ok, err := s.store.ConfirmPendingRouterConfig(request.RevisionID); err != nil || !ok {
+		if err == nil {
+			err = errors.New("pending configuration not found")
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"confirmed": true})
 }
 
 func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
@@ -355,6 +399,78 @@ func (s *Server) handleFirewallApply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) normalizeRouterRequest(cfg model.RouterConfig) model.RouterConfig {
+	previous := model.DefaultRouterConfig()
+	if stored := s.store.Snapshot().RouterConfig; stored != nil {
+		previous = *stored
+	}
+	cfg.WANPorts = model.SetTCPPortAccess(cfg.WANPorts, previous.ManagerPort, cfg.ManagerPort, cfg.ManagerWANAccess, "NanoPi Manager")
+	cfg.ManagerWANAccess = false
+	cfg.ManagerWANSources = nil
+	cfg.PanelPort = 0
+	return cfg
+}
+
+func (s *Server) handleXUIAction(w http.ResponseWriter, r *http.Request) {
+	var request model.XUIActionRequest
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.PanelPort = s.store.Snapshot().XUIConfig.PanelPort
+	if request.PanelPort == 0 {
+		request.PanelPort = model.DefaultPanelPort
+	}
+	var result any
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/xui/action", request, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleXUISettings(w http.ResponseWriter, r *http.Request) {
+	var request model.XUISettingsRequest
+	if err := readJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if request.PanelPort < 1 || request.PanelPort > 65535 {
+		writeError(w, http.StatusBadRequest, "3x-ui panel port must be between 1 and 65535")
+		return
+	}
+	state := s.store.Snapshot()
+	previousConfig := model.DefaultRouterConfig()
+	if state.RouterConfig != nil {
+		previousConfig = *state.RouterConfig
+	}
+	if request.PanelPort == previousConfig.ManagerPort {
+		writeError(w, http.StatusBadRequest, "3x-ui panel port must differ from Manager port")
+		return
+	}
+	previousPort := state.XUIConfig.PanelPort
+	if previousPort == 0 {
+		previousPort = model.DefaultPanelPort
+	}
+	nextConfig := previousConfig
+	nextConfig.WANPorts = model.SetTCPPortAccess(nextConfig.WANPorts, previousPort, request.PanelPort, request.WANAccess, "3x-ui panel")
+	apply := model.XUISettingsApplyRequest{PreviousConfig: previousConfig, Config: nextConfig, PreviousPort: previousPort, PanelPort: request.PanelPort}
+	var result model.XUISettingsResult
+	if err := s.agent.Call(r.Context(), http.MethodPost, "/v1/xui/settings", apply, &result); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := s.store.SaveRouterAndXUIConfig(nextConfig, model.XUIConfig{PanelPort: request.PanelPort}); err != nil {
+		reverse := model.XUISettingsApplyRequest{PreviousConfig: nextConfig, Config: previousConfig, PreviousPort: request.PanelPort, PanelPort: previousPort}
+		_ = s.agent.Call(context.Background(), http.MethodPost, "/v1/xui/settings", reverse, nil)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	result.PanelPort = request.PanelPort
+	result.WANAccess = model.TCPPortOpen(nextConfig.WANPorts, request.PanelPort)
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleManagerReleases(w http.ResponseWriter, r *http.Request) {
 	path := "/v1/manager/releases"
 	if r.URL.Query().Get("prerelease") == "true" {
@@ -435,7 +551,7 @@ func (s *Server) allowAttempt(r *http.Request) bool {
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")

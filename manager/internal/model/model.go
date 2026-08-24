@@ -44,20 +44,23 @@ type PortRule struct {
 }
 
 type RouterConfig struct {
-	WANInterface      string     `json:"wanInterface"`
-	WANMACMode        string     `json:"wanMacMode"`
-	WANMAC            string     `json:"wanMac,omitempty"`
-	LANInterfaces     []string   `json:"lanInterfaces"`
-	Bridge            string     `json:"bridge"`
-	LANCIDR           string     `json:"lanCidr"`
-	DHCPStart         string     `json:"dhcpStart"`
-	DHCPEnd           string     `json:"dhcpEnd"`
-	DNS               []string   `json:"dns"`
-	ManagerPort       int        `json:"managerPort"`
-	ManagerWANAccess  bool       `json:"managerWanAccess"`
-	ManagerWANSources []string   `json:"managerWanSources,omitempty"`
-	PanelPort         int        `json:"panelPort"`
-	WANPorts          []PortRule `json:"wanPorts,omitempty"`
+	WANInterface  string   `json:"wanInterface"`
+	WANMACMode    string   `json:"wanMacMode"`
+	WANMAC        string   `json:"wanMac,omitempty"`
+	LANInterfaces []string `json:"lanInterfaces"`
+	Bridge        string   `json:"bridge"`
+	LANCIDR       string   `json:"lanCidr"`
+	DHCPStart     string   `json:"dhcpStart"`
+	DHCPEnd       string   `json:"dhcpEnd"`
+	DNS           []string `json:"dns"`
+	ManagerPort   int      `json:"managerPort"`
+	// ManagerWANAccess and ManagerWANSources are accepted only to migrate v0.2.0
+	// state and older API clients. WAN access is represented by WANPorts.
+	ManagerWANAccess  bool     `json:"managerWanAccess,omitempty"`
+	ManagerWANSources []string `json:"managerWanSources,omitempty"`
+	// PanelPort is a v0.2.0 compatibility field. New state stores it in XUIConfig.
+	PanelPort int        `json:"panelPort,omitempty"`
+	WANPorts  []PortRule `json:"wanPorts,omitempty"`
 }
 
 func DefaultRouterConfig() RouterConfig {
@@ -69,9 +72,14 @@ func DefaultRouterConfig() RouterConfig {
 		DHCPEnd:     DefaultDHCPEnd,
 		DNS:         []string{"8.8.8.8", "1.1.1.1"},
 		ManagerPort: DefaultManagerPort,
-		PanelPort:   DefaultPanelPort,
 	}
 }
+
+type XUIConfig struct {
+	PanelPort int `json:"panelPort"`
+}
+
+func DefaultXUIConfig() XUIConfig { return XUIConfig{PanelPort: DefaultPanelPort} }
 
 type FileChange struct {
 	Path    string `json:"path"`
@@ -89,11 +97,12 @@ type Plan struct {
 }
 
 type ApplyResult struct {
-	RevisionID      string    `json:"revisionId"`
-	RollbackDueAt   time.Time `json:"rollbackDueAt"`
-	ConfirmationTTL int       `json:"confirmationTtlSeconds"`
-	ManagerPort     int       `json:"managerPort"`
-	ManagerRestart  bool      `json:"managerRestart"`
+	RevisionID        string    `json:"revisionId"`
+	RollbackDueAt     time.Time `json:"rollbackDueAt"`
+	ConfirmationTTL   int       `json:"confirmationTtlSeconds"`
+	ManagerPort       int       `json:"managerPort"`
+	ManagerRestart    bool      `json:"managerRestart"`
+	ConfirmationToken string    `json:"confirmationToken,omitempty"`
 }
 
 type RouterStatus struct {
@@ -185,4 +194,23 @@ type XUIActionRequest struct {
 	Action    string `json:"action"`
 	BackupID  string `json:"backupId,omitempty"`
 	PanelPort int    `json:"panelPort,omitempty"`
+}
+
+type XUISettingsRequest struct {
+	PanelPort int  `json:"panelPort"`
+	WANAccess bool `json:"wanAccess"`
+}
+
+type XUISettingsApplyRequest struct {
+	PreviousConfig RouterConfig `json:"previousConfig"`
+	Config         RouterConfig `json:"config"`
+	PreviousPort   int          `json:"previousPort"`
+	PanelPort      int          `json:"panelPort"`
+}
+
+type XUISettingsResult struct {
+	PanelPort int    `json:"panelPort"`
+	WANAccess bool   `json:"wanAccess"`
+	Applied   bool   `json:"applied"`
+	Message   string `json:"message"`
 }

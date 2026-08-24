@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/model"
+	"github.com/vmatveenko/nanopi-r5s/manager/internal/router"
 )
 
 // Pinned to the stable release whose API schema is covered by this adapter.
@@ -102,6 +103,14 @@ func (s *Service) XUIAction(ctx context.Context, request model.XUIActionRequest,
 	case "stop":
 		_, err := s.runner.Run(ctx, "docker", "compose", "-f", compose, "stop")
 		return "3x-ui stopped", err
+	case "remove":
+		if dirHasEntries(filepath.Join(base, "db")) {
+			if _, err := s.backupXUI(ctx, base, compose); err != nil {
+				return "", fmt.Errorf("pre-remove backup: %w", err)
+			}
+		}
+		_, err := s.runner.Run(ctx, "docker", "compose", "-f", compose, "down", "--remove-orphans")
+		return "3x-ui container removed; data and backup are preserved", err
 	case "restart":
 		_, err := s.runner.Run(ctx, "docker", "compose", "-f", compose, "restart")
 		return "3x-ui restarted", err
@@ -137,6 +146,86 @@ func renderXUICompose(panelPort int) string {
       - ./db:/etc/x-ui
       - ./cert:/root/cert
 `, xuiImage, panelPort)
+}
+
+func (s *Service) ApplyXUISettings(ctx context.Context, request model.XUISettingsApplyRequest) (model.XUISettingsResult, error) {
+	if request.PanelPort < 1 || request.PanelPort > 65535 {
+		return model.XUISettingsResult{}, errors.New("3x-ui panel port must be between 1 and 65535")
+	}
+	if request.PanelPort == request.Config.ManagerPort {
+		return model.XUISettingsResult{}, errors.New("3x-ui panel port must differ from Manager port")
+	}
+	normalized := request.Config
+	basePath := "/opt/nanopi-manager/3x-ui"
+	base := s.cfg.Rooted(basePath)
+	composePath := filepath.Join(base, "compose.yaml")
+	if err := os.MkdirAll(filepath.Join(base, "db"), 0o700); err != nil {
+		return model.XUISettingsResult{}, err
+	}
+	if err := os.MkdirAll(filepath.Join(base, "cert"), 0o700); err != nil {
+		return model.XUISettingsResult{}, err
+	}
+	composeContent := renderXUICompose(request.PanelPort)
+	files := []model.FileChange{{Path: basePath + "/compose.yaml", Content: composeContent, Mode: 0o600}}
+	routerActive := s.RouterStatus().Active
+	if routerActive {
+		plan, err := s.Plan(request.Config)
+		if err != nil {
+			return model.XUISettingsResult{}, err
+		}
+		normalized = plan.Config
+		files = append(files, model.FileChange{Path: "/etc/nftables.conf", Content: router.RenderNFTables(normalized), Mode: 0o600})
+	}
+	backup, err := s.createBackup(ctx, files)
+	if err != nil {
+		return model.XUISettingsResult{}, fmt.Errorf("backup 3x-ui settings: %w", err)
+	}
+	rollback := func(cause error) (model.XUISettingsResult, error) {
+		if !s.cfg.DryRun {
+			// Stop the just-applied compose before restoring its previous file. This
+			// also removes a newly created container when no compose existed before.
+			_, _ = s.runner.Run(context.Background(), "docker", "compose", "-f", composePath, "down", "--remove-orphans")
+		}
+		if _, restoreErr := s.restoreRevisionFiles(backup.RevisionID); restoreErr != nil {
+			return model.XUISettingsResult{}, fmt.Errorf("%v; restore settings: %w", cause, restoreErr)
+		}
+		if !s.cfg.DryRun {
+			if _, statErr := os.Stat(composePath); statErr == nil {
+				_, _ = s.runner.Run(context.Background(), "docker", "compose", "-f", composePath, "up", "-d", "--remove-orphans")
+			}
+			if routerActive {
+				_, _ = s.runner.Run(context.Background(), "systemctl", "restart", "nftables.service")
+			}
+		}
+		return model.XUISettingsResult{}, cause
+	}
+	if err := writeFileAtomic(composePath, []byte(composeContent), 0o600); err != nil {
+		return rollback(err)
+	}
+	if routerActive {
+		if err := writeFileAtomic(s.cfg.Rooted("/etc/nftables.conf"), []byte(router.RenderNFTables(normalized)), 0o600); err != nil {
+			return rollback(err)
+		}
+	}
+	if !s.cfg.DryRun {
+		if _, err := s.runner.Run(ctx, "docker", "compose", "-f", composePath, "config", "-q"); err != nil {
+			return rollback(fmt.Errorf("validate 3x-ui compose: %w", err))
+		}
+		if routerActive {
+			if _, err := s.runner.Run(ctx, "nft", "-c", "-f", s.cfg.Rooted("/etc/nftables.conf")); err != nil {
+				return rollback(fmt.Errorf("validate firewall: %w", err))
+			}
+		}
+		if _, err := s.runner.Run(ctx, "docker", "compose", "-f", composePath, "up", "-d", "--remove-orphans"); err != nil {
+			return rollback(fmt.Errorf("apply 3x-ui settings: %w", err))
+		}
+		if routerActive {
+			if _, err := s.runner.Run(ctx, "systemctl", "restart", "nftables.service"); err != nil {
+				return rollback(fmt.Errorf("apply firewall: %w", err))
+			}
+		}
+	}
+	return model.XUISettingsResult{PanelPort: request.PanelPort, WANAccess: model.TCPPortOpen(normalized.WANPorts, request.PanelPort), Applied: true, Message: "3x-ui settings applied"}, nil
 }
 
 func (s *Service) backupXUI(ctx context.Context, base, compose string) (string, error) {

@@ -139,6 +139,19 @@ func (s *Service) ApplyFirewall(ctx context.Context, cfg model.RouterConfig) (mo
 }
 
 func (s *Service) FirewallStatus(ctx context.Context, cfg model.RouterConfig) (model.FirewallStatus, error) {
+	if cfg.ManagerPort == 0 {
+		cfg.ManagerPort = model.DefaultManagerPort
+	}
+	systemRules := []string{"loopback", "established/related", "ICMP", "LAN input", "WAN DHCP response", "LAN forwarding", "NAT masquerade"}
+	if !s.RouterStatus().Active {
+		return model.FirewallStatus{
+			RouterActive: false,
+			Rules:        cfg.WANPorts,
+			ManagerWAN:   model.TCPPortOpen(cfg.WANPorts, cfg.ManagerPort),
+			ManagerPort:  cfg.ManagerPort,
+			SystemRules:  systemRules,
+		}, nil
+	}
 	plan, err := s.Plan(cfg)
 	if err != nil {
 		return model.FirewallStatus{}, err
@@ -147,9 +160,9 @@ func (s *Service) FirewallStatus(ctx context.Context, cfg model.RouterConfig) (m
 	status := model.FirewallStatus{
 		RouterActive: s.RouterStatus().Active,
 		Rules:        normalized.WANPorts,
-		ManagerWAN:   normalized.ManagerWANAccess,
+		ManagerWAN:   model.TCPPortOpen(normalized.WANPorts, normalized.ManagerPort),
 		ManagerPort:  normalized.ManagerPort,
-		SystemRules:  []string{"loopback", "established/related", "ICMP", "LAN input", "WAN DHCP response", "LAN forwarding", "NAT masquerade"},
+		SystemRules:  systemRules,
 	}
 	current, readErr := os.ReadFile(s.cfg.Rooted("/etc/nftables.conf"))
 	status.InSync = readErr == nil && string(current) == router.RenderNFTables(normalized)

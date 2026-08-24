@@ -1,5 +1,6 @@
 const $=id=>document.getElementById(id);
-let csrf='',inventory=null,routerState=null,currentPlan=null,pendingRevision='',timer=null,setupMode=false,releases=[],currentVersion='';
+const pages={overview:'Обзор',router:'Маршрутизатор',firewall:'Firewall',docker:'Docker',xui:'3x-ui / Xray',diagnostics:'Диагностика'};
+let csrf='',setupMode=false,inventory=null,routerConfigState=null,xuiConfigState={panelPort:2053,wanAccess:false},firewallRules=[],dockerState=null,releases=[],currentVersion='';
 
 async function api(path,options={}){
   const headers={'Content-Type':'application/json',...(options.headers||{})};
@@ -9,120 +10,105 @@ async function api(path,options={}){
   if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
   return data;
 }
-function toast(message,error=false){const el=$('toast');el.textContent=message;el.className=error?'show error-toast':'show';setTimeout(()=>el.className='',5000)}
+function escapeHTML(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+const csv=value=>String(value||'').split(',').map(x=>x.trim()).filter(Boolean);
+function setMessage(id,message,error=false){const el=$(id);el.textContent=message||'';el.className=`message${error?' error':message?' success':''}`}
+function toast(message,error=false){const el=$('toast');el.textContent=message;el.className=`toast${error?' error':''}`;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.className='toast hidden',5000)}
+function busy(button,value,label='Выполняется…'){if(!button)return;if(value){button.dataset.label=button.textContent;button.textContent=label} else if(button.dataset.label){button.textContent=button.dataset.label;delete button.dataset.label}button.disabled=value}
+function setBadge(id,text,tone=''){const el=$(id);el.textContent=text;el.className=`badge${tone?' '+tone:''}`}
 
 async function boot(){
   try{
     const state=await api('/api/bootstrap');setupMode=!state.initialized;
-    $('authHint').textContent=setupMode?'Первый вход: создайте единственного администратора. Пароль не может быть пустым.':'Войдите под локальным администратором.';
+    $('authHint').textContent=setupMode?'Первый вход: задайте логин и пароль локального администратора.':'Введите данные локального администратора.';
     $('authPassword').autocomplete=setupMode?'new-password':'current-password';
-    $('authSubmit').textContent=setupMode?'Создать администратора':'Войти';$('authForm').classList.remove('hidden');
-    try{const session=await api('/api/session');enter(session)}catch{}
-  }catch(e){$('authError').textContent=e.message}
+    $('authSubmit').textContent=setupMode?'Создать администратора':'Войти';
+    $('authForm').classList.remove('hidden');
+    try{enter(await api('/api/session'))}catch{}
+  }catch(error){$('authError').textContent=error.message}
 }
-$('authForm').addEventListener('submit',async e=>{e.preventDefault();$('authError').textContent='';try{const data=await api(setupMode?'/api/setup':'/api/login',{method:'POST',body:JSON.stringify({username:$('authUsername').value,password:$('authPassword').value})});enter(data)}catch(err){$('authError').textContent=err.message}});
-async function enter(session){csrf=session.csrfToken;$('username').textContent=session.username;$('authView').classList.add('hidden');$('appView').classList.remove('hidden');$('userArea').classList.remove('hidden');await loadAll()}
+$('authForm').addEventListener('submit',async event=>{event.preventDefault();$('authError').textContent='';try{enter(await api(setupMode?'/api/setup':'/api/login',{method:'POST',body:JSON.stringify({username:$('authUsername').value,password:$('authPassword').value})}))}catch(error){$('authError').textContent=error.message}});
+async function enter(session){csrf=session.csrfToken;$('username').textContent=session.username;$('authView').classList.add('hidden');$('appView').classList.remove('hidden');$('userArea').classList.remove('hidden');await loadAll();openPage(location.hash.slice(1)||'overview')}
 $('logout').onclick=async()=>{try{await api('/api/logout',{method:'POST',body:'{}'})}finally{location.reload()}};
 
-document.querySelectorAll('.side-nav button').forEach(button=>button.onclick=()=>{
-  if(button.disabled)return;
-  document.querySelectorAll('.side-nav button,.page').forEach(el=>el.classList.remove('active'));
-  button.classList.add('active');$(button.dataset.target).classList.add('active');
-});
+function openPage(name){if(!pages[name]||$(name)==null)return;if(name==='xui'&&$('xuiTab').disabled)return;document.querySelectorAll('#nav button,.page').forEach(el=>el.classList.remove('active'));document.querySelector(`#nav button[data-target="${name}"]`)?.classList.add('active');$(name).classList.add('active');$('pageTitle').textContent=pages[name];$('breadcrumb').textContent=`SYSTEM / ${name.toUpperCase()}`;history.replaceState(null,'',`#${name}`)}
+document.querySelectorAll('#nav button').forEach(button=>button.onclick=()=>{openPage(button.dataset.target);void loadPage(button.dataset.target)});
+$('refreshPage').onclick=()=>loadPage(document.querySelector('.page.active')?.id||'overview');
+async function loadPage(name){if(name==='overview')return loadAll();if(name==='router')return Promise.allSettled([loadState(),loadRouterStatus(),loadInventory()]);if(name==='firewall')return loadFirewallStatus();if(name==='docker'||name==='xui')return Promise.allSettled([loadState(),loadDockerStatus()]);if(name==='diagnostics')return loadDiagnostics()}
+async function loadAll(){await Promise.allSettled([loadInventory(),loadState(),loadRouterStatus(),loadDockerStatus()]);$('overviewAgent').textContent='ONLINE';$('overviewAgent').className='ok';$('sidebarStatus').textContent='AGENT: ONLINE'}
 
-async function loadAll(){await Promise.allSettled([loadInventory(),loadDiagnostics(),loadState(),loadRouterStatus(),loadDockerStatus()])}
-async function loadInventory(){try{inventory=await api('/api/inventory');$('hostName').textContent=inventory.hostname||'NanoPi';$('hostMeta').textContent=`${inventory.os||''} · ${inventory.architecture||''} · kernel ${inventory.kernel||'—'}`;renderInterfaces()}catch(e){toast(e.message,true)}}
-function renderInterfaces(){
-  const select=$('wanInterface'),box=$('lanInterfaces');select.innerHTML='';box.innerHTML='';
-  (inventory.interfaces||[]).filter(i=>i.physical).forEach(item=>{
-    const o=document.createElement('option');o.value=item.name;o.textContent=`${item.name} · ${item.mac} · ${item.state}`;o.selected=item.defaultWan;select.append(o);
-    const label=document.createElement('label');label.className='check';label.innerHTML=`<input type="checkbox" value="${escapeHTML(item.name)}"> ${escapeHTML(item.name)} <span class="muted">${escapeHTML(item.state)}</span>`;box.append(label);
-  });
-  if(!select.value&&select.options.length)select.selectedIndex=0;
-  box.querySelectorAll('input').forEach(input=>input.checked=input.value!==select.value);
-  select.onchange=syncInterfaceRoles;$('macMode').onchange=syncMAC;applyInterfaceState();
+async function loadInventory(){
+  try{inventory=await api('/api/inventory');renderInventory();renderInterfaceControls()}catch(error){$('overviewAgent').textContent='OFFLINE';$('overviewAgent').className='bad';$('sidebarStatus').textContent='AGENT: OFFLINE';toast(error.message,true)}
 }
-function applyInterfaceState(){
-  if(!inventory)return;const select=$('wanInterface'),box=$('lanInterfaces'),c=routerState;
-  if(c){if(c.wanInterface&&[...select.options].some(option=>option.value===c.wanInterface))select.value=c.wanInterface;const saved=Boolean(c.wanInterface)||(c.lanInterfaces||[]).length>0;if(saved)box.querySelectorAll('input').forEach(input=>input.checked=(c.lanInterfaces||[]).includes(input.value))}
-  syncInterfaceRoles();
+function renderInventory(){
+  const facts=[['Имя',inventory.hostname||'—'],['ОС',inventory.os||'—'],['Архитектура',inventory.architecture||'—'],['Kernel',inventory.kernel||'—'],['Шлюз',inventory.defaultGateway||'—'],['Маршрут',inventory.defaultRoute||'—']];
+  $('systemFacts').innerHTML=facts.map(([key,value])=>`<div><dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('');
+  $('interfaceList').innerHTML=(inventory.interfaces||[]).map(item=>`<div class="row"><div class="row-main"><div class="row-title">${escapeHTML(item.name)}${item.defaultWan?'<span class="badge">default</span>':''}</div><div class="row-sub">${escapeHTML(item.mac||'нет MAC')} · ${escapeHTML((item.addresses||[]).join(', ')||'нет IPv4')}</div></div><span class="state ${item.state==='up'?'ok':'bad'}">${escapeHTML(item.state||'unknown')}</span></div>`).join('')||'<p class="muted">Интерфейсы не обнаружены.</p>';
 }
-function syncInterfaceRoles(){const wan=$('wanInterface').value;$('lanInterfaces').querySelectorAll('input').forEach(input=>{const same=input.value===wan;if(same)input.checked=false;input.disabled=same});syncMAC()}
-function syncMAC(){if(!inventory)return;const mode=$('macMode').value,wan=(inventory.interfaces||[]).find(i=>i.name===$('wanInterface').value);if(mode==='factory')$('wanMac').value=wan?.permanentMac||'';if(mode==='current')$('wanMac').value='';if(mode==='clone'&&!$('wanMac').value){const source=(inventory.interfaces||[]).find(i=>i.physical&&i.name!==$('wanInterface').value);if(source)$('wanMac').value=source.mac||''}}
+function renderInterfaceControls(){
+  if(!inventory)return;const select=$('wanInterface'),lan=$('lanInterfaces'),previous=select.value;select.innerHTML='';lan.innerHTML='';
+  (inventory.interfaces||[]).filter(item=>item.physical).forEach(item=>{const option=document.createElement('option');option.value=item.name;option.textContent=`${item.name} · ${item.mac||'нет MAC'} · ${item.state||'unknown'}`;option.selected=item.defaultWan;select.append(option);const label=document.createElement('label');label.innerHTML=`<input type="checkbox" value="${escapeHTML(item.name)}"><span>${escapeHTML(item.name)} · ${escapeHTML(item.state||'unknown')}</span>`;lan.append(label)});
+  if(previous&&[...select.options].some(o=>o.value===previous))select.value=previous;applyInterfaceState();
+}
+function applyInterfaceState(){if(!inventory)return;const cfg=routerConfigState||{};if(cfg.wanInterface&&[...$('wanInterface').options].some(o=>o.value===cfg.wanInterface))$('wanInterface').value=cfg.wanInterface;const hasRoles=Boolean(cfg.wanInterface)||(cfg.lanInterfaces||[]).length>0;$('lanInterfaces').querySelectorAll('input').forEach(input=>input.checked=hasRoles?(cfg.lanInterfaces||[]).includes(input.value):input.value!==$('wanInterface').value);syncInterfaceRoles()}
+function syncInterfaceRoles(){const wan=$('wanInterface').value;$('lanInterfaces').querySelectorAll('input').forEach(input=>{const same=input.value===wan;if(same)input.checked=false;input.disabled=same;input.closest('label').classList.toggle('unavailable',same)});syncMAC()}
+function syncMAC(){if(!inventory)return;const mode=$('wanMacMode').value,item=(inventory.interfaces||[]).find(i=>i.name===$('wanInterface').value),source=(inventory.interfaces||[]).find(i=>i.physical&&i.name!==$('wanInterface').value);$('wanMac').disabled=!['manual','clone'].includes(mode);if(mode==='factory')$('wanMac').value=item?.permanentMac||item?.mac||'';if(mode==='clone')$('wanMac').value=source?.mac||'';if(['current','random'].includes(mode))$('wanMac').value=''}
+$('wanInterface').onchange=syncInterfaceRoles;$('wanMacMode').onchange=syncMAC;
 
 async function loadState(){
   try{
-    const data=await api('/api/state'),c=data.routerConfig;if(!c)return;routerState=c;
-    $('bridge').value=c.bridge||'br0';$('lanCidr').value=c.lanCidr||'';$('dhcpStart').value=c.dhcpStart||'';$('dhcpEnd').value=c.dhcpEnd||'';$('dns').value=(c.dns||[]).join(', ');
-    $('macMode').value=c.wanMacMode||'current';$('wanMac').value=c.wanMac||'';$('managerPort').value=c.managerPort||8080;$('panelPort').value=c.panelPort||2053;
-    $('managerWanAccess').checked=Boolean(c.managerWanAccess);$('managerWanSources').value=(c.managerWanSources||[]).join(', ');$('panelUrl').value=`http://127.0.0.1:${c.panelPort||2053}`;
-    renderFirewallRules(c.wanPorts||[]);applyInterfaceState();
-  }catch(e){toast(e.message,true)}
+    const data=await api('/api/state');routerConfigState=data.routerConfig||{};xuiConfigState=data.xuiConfig||{panelPort:2053,wanAccess:false};firewallRules=(routerConfigState.wanPorts||[]).map(rule=>({...rule,sources:[...(rule.sources||[])]}));
+    const cfg=routerConfigState;$('bridge').value=cfg.bridge||'br0';$('lanCidr').value=cfg.lanCidr||'192.168.10.1/24';$('dhcpStart').value=cfg.dhcpStart||'192.168.10.10';$('dhcpEnd').value=cfg.dhcpEnd||'192.168.10.200';$('dns').value=(cfg.dns||[]).join(', ');$('wanMacMode').value=cfg.wanMacMode||'current';$('wanMac').value=cfg.wanMac||'';$('managerPort').value=cfg.managerPort||8080;$('managerWanAccess').checked=portOpen(firewallRules,Number($('managerPort').value));$('panelPort').value=xuiConfigState.panelPort||2053;$('panelWanAccess').checked=Boolean(xuiConfigState.wanAccess);updatePanelURL();renderFirewallRules(firewallRules);applyInterfaceState();syncMAC();
+  }catch(error){toast(error.message,true)}
 }
-function routerConfig(){return{
-  wanInterface:$('wanInterface').value,wanMacMode:$('macMode').value,wanMac:$('wanMac').value.trim(),
-  lanInterfaces:[...document.querySelectorAll('#lanInterfaces input:checked')].map(i=>i.value),bridge:$('bridge').value.trim(),lanCidr:$('lanCidr').value.trim(),dhcpStart:$('dhcpStart').value.trim(),dhcpEnd:$('dhcpEnd').value.trim(),dns:csv($('dns').value),
-  managerPort:Number($('managerPort').value),managerWanAccess:$('managerWanAccess').checked,managerWanSources:csv($('managerWanSources').value),panelPort:Number($('panelPort').value),wanPorts:readFirewallRules()
-}}
-const csv=value=>value.split(',').map(x=>x.trim()).filter(Boolean);
+function portOpen(rules,port){return rules.some(rule=>String(rule.protocol).toLowerCase()==='tcp'&&Number(rule.port)===Number(port)&&!rule.disabled)}
+function readFirewallRules(){return[...$('firewallRules').querySelectorAll('.rule-row')].map(row=>({protocol:row.querySelector('[data-field=protocol]').value,port:Number(row.querySelector('[data-field=port]').value),description:row.querySelector('[data-field=description]').value.trim(),sources:csv(row.querySelector('[data-field=sources]').value),disabled:!row.querySelector('[data-field=enabled]').checked}))}
+function configFromForm(includeManagerAccess=true){const cfg={wanInterface:$('wanInterface').value,wanMacMode:$('wanMacMode').value,wanMac:$('wanMac').value.trim(),lanInterfaces:[...$('lanInterfaces').querySelectorAll('input:checked')].map(input=>input.value),bridge:$('bridge').value.trim(),lanCidr:$('lanCidr').value.trim(),dhcpStart:$('dhcpStart').value.trim(),dhcpEnd:$('dhcpEnd').value.trim(),dns:csv($('dns').value),managerPort:Number($('managerPort').value),wanPorts:readFirewallRules()};if(includeManagerAccess)cfg.managerWanAccess=$('managerWanAccess').checked;return cfg}
 
-$('routerForm').addEventListener('submit',async e=>{
-  e.preventDefault();try{
-    currentPlan=await api('/api/router/plan',{method:'POST',body:JSON.stringify(routerConfig())});$('planCard').classList.remove('hidden');$('applyRouter').disabled=false;
-    $('planWarnings').innerHTML=(currentPlan.warnings||[]).map(w=>`<p>⚠ ${escapeHTML(w)}</p>`).join('');
-    $('planOutput').textContent=currentPlan.files.map(f=>`### ${f.path}${f.changed?' · изменяется':' · без изменений'}\n${f.diff||'(изменений нет)'}`).join('\n\n')+'\n\nКоманды:\n'+currentPlan.commands.join('\n');
-    $('planBadge').textContent='проверен';toast('План сформирован, система ещё не изменена');
-  }catch(e){toast(e.message,true)}
+async function loadRouterStatus(){
+  try{const status=await api('/api/router/status');const active=Boolean(status.active);$('routerMode').textContent=status.pending?'Применение конфигурации…':active?'Режим маршрутизатора активен':'Режим маршрутизатора не применён';$('routerDetail').textContent=active?'Доступен полный откат к исходному состоянию.':'Настройки ещё не меняли систему.';$('deactivateRouter').disabled=!active;$('overviewRouter').textContent=active?'ACTIVE':'INACTIVE';$('overviewRouter').className=active?'ok':'warn'}catch(error){$('routerMode').textContent='Не удалось получить состояние';$('overviewRouter').textContent='ERROR';$('overviewRouter').className='bad';toast(error.message,true)}
+}
+$('routerForm').addEventListener('submit',async event=>{
+  event.preventDefault();const button=$('applyRouter');busy(button,true,'Применяем…');setMessage('routerMessage','Конфигурация применяется. Соединение может кратковременно прерваться.');
+  try{const cfg=configFromForm(true);const result=await api('/api/router/apply',{method:'POST',body:JSON.stringify(cfg)});setMessage('routerMessage','Проверяем доступность Manager…');await confirmRouterAutomatically(result,cfg)}catch(error){setMessage('routerMessage',error.message,true);toast(error.message,true)}finally{busy(button,false)}
 });
-$('applyRouter').onclick=async()=>{
-  if(!currentPlan||!confirm('Применить сетевую конфигурацию? Связь может прерваться. Через 120 секунд без подтверждения произойдёт откат.'))return;
-  try{
-    const result=await api('/api/router/apply',{method:'POST',body:JSON.stringify(routerConfig())});pendingRevision=result.revisionId;startCountdown(result.confirmationTtlSeconds||120);$('rollbackCard').classList.remove('hidden');toast('Конфигурация применена. Подтвердите доступ.');
-    if(result.managerRestart){const next=`${location.protocol}//${location.hostname}:${result.managerPort}${location.pathname}`;setTimeout(()=>location.assign(next),2500)}
-  }catch(e){toast(e.message,true)}
-};
-function startCountdown(seconds){clearInterval(timer);seconds=Math.max(0,Math.ceil(seconds));$('countdown').textContent=seconds;timer=setInterval(()=>{seconds--;$('countdown').textContent=Math.max(0,seconds);if(seconds<=0){clearInterval(timer);toast('Время подтверждения истекло — выполняется автоматический откат',true);setTimeout(()=>location.reload(),2500)}},1000)}
-$('confirmRouter').onclick=async()=>{try{await api('/api/router/confirm',{method:'POST',body:JSON.stringify({revisionId:pendingRevision})});clearInterval(timer);$('rollbackCard').classList.add('hidden');$('planBadge').textContent='применён';toast('Конфигурация подтверждена');await loadRouterStatus()}catch(e){toast(e.message,true)}};
-$('rollbackRouter').onclick=async()=>{try{const result=await api('/api/router/rollback',{method:'POST',body:JSON.stringify({revisionId:pendingRevision})});clearInterval(timer);$('rollbackCard').classList.add('hidden');toast('Предыдущая конфигурация восстановлена');returnToManagerPort(result.managerPort)}catch(e){toast(e.message,true)}};
-async function loadRouterStatus(){try{const status=await api('/api/router/status');$('routerStatusText').textContent=status.pending?'Изменения ожидают подтверждения':status.active?'Активен; доступен полный откат к состоянию до первого применения':'Не применён';$('deactivateRouter').disabled=!status.active;$('deactivateRouter').textContent=status.active?'Откатить режим полностью':'Режим не применён';if(status.pending){pendingRevision=status.pendingRevision;const left=(new Date(status.rollbackDueAt).getTime()-Date.now())/1000;startCountdown(left);$('rollbackCard').classList.remove('hidden')}}catch(e){toast(e.message,true)}}
-$('deactivateRouter').onclick=async()=>{if(!confirm('Полностью отключить режим маршрутизатора и восстановить сетевые файлы и состояние служб до первого применения? Соединение может прерваться.'))return;try{const result=await api('/api/router/deactivate',{method:'POST',body:'{}'});toast('Исходная конфигурация восстановлена');returnToManagerPort(result.managerPort)}catch(e){toast(e.message,true)}};
-function returnToManagerPort(port){const target=Number(port)||8080;setTimeout(()=>location.assign(`${location.protocol}//${location.hostname}:${target}${location.pathname}`),2500)}
+async function confirmRouterAutomatically(result,cfg){
+  const deadline=new Date(result.rollbackDueAt).getTime()||Date.now()+((result.confirmationTtlSeconds||120)*1000);const port=Number(result.managerPort)||Number(cfg.managerPort)||8080;const hosts=new Set([location.hostname]);const lanHost=String(cfg.lanCidr||'').split('/')[0];if(lanHost)hosts.add(lanHost);const origins=[...hosts].map(host=>`${location.protocol}//${host.includes(':')?`[${host}]`:host}:${port}`);
+  while(Date.now()<deadline-1500){for(const origin of origins){try{const response=await fetch(`${origin}/api/router/confirm-access`,{method:'POST',mode:'cors',credentials:'omit',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify({revisionId:result.revisionId,token:result.confirmationToken})});if(response.ok){setMessage('routerMessage','Режим маршрутизатора применён.');toast('Конфигурация применена и подтверждена');if(origin!==location.origin){location.assign(`${origin}${location.pathname}#router`);return}await Promise.allSettled([loadState(),loadRouterStatus(),loadFirewallStatus()]);return}}catch{}}
+    await new Promise(resolve=>setTimeout(resolve,1200));
+  }
+  throw new Error('Новая конфигурация недоступна: устройство выполняет автоматический откат. Повторите подключение через исходный адрес.');
+}
+$('deactivateRouter').onclick=async()=>{if(!confirm('Восстановить сетевые файлы и службы в состояние до первого применения режима маршрутизатора?'))return;const button=$('deactivateRouter');busy(button,true,'Откатываем…');try{const result=await api('/api/router/deactivate',{method:'POST',body:'{}'});toast('Исходная конфигурация восстановлена');const port=Number(result.managerPort)||8080;setTimeout(()=>location.assign(`${location.protocol}//${location.hostname}:${port}${location.pathname}#router`),2200)}catch(error){toast(error.message,true)}finally{busy(button,false)}};
 
 function renderFirewallRules(rules){const box=$('firewallRules');box.innerHTML='';rules.forEach(addFirewallRule);if(!rules.length)box.innerHTML='<p class="muted empty-rules">Пользовательских правил нет.</p>'}
-function addFirewallRule(rule={protocol:'tcp',port:443,description:'',sources:[],disabled:false}){
-  const empty=$('firewallRules').querySelector('.empty-rules');if(empty)empty.remove();
-  const row=document.createElement('div');row.className='rule-row';row.innerHTML=`
-    <label>Протокол<select data-field="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
-    <label>Порт<input data-field="port" type="number" min="1" max="65535" value="${Number(rule.port)||443}"></label>
-    <label>Описание<input data-field="description" maxlength="128" value="${escapeHTML(rule.description||'')}"></label>
-    <label class="rule-sources">IPv4/CIDR через запятую<input data-field="sources" value="${escapeHTML((rule.sources||[]).join(', '))}" placeholder="пусто = любой источник"></label>
-    <label class="inline-check"><input data-field="enabled" type="checkbox" ${rule.disabled?'':'checked'}> Включено</label>
-    <button type="button" class="secondary remove-rule">Удалить</button>`;
-  row.querySelector('[data-field="protocol"]').value=rule.protocol||'tcp';row.querySelector('.remove-rule').onclick=()=>{row.remove();if(!$('firewallRules').children.length)renderFirewallRules([])};$('firewallRules').append(row);
-}
-function readFirewallRules(){return[...$('firewallRules').querySelectorAll('.rule-row')].map(row=>({protocol:row.querySelector('[data-field="protocol"]').value,port:Number(row.querySelector('[data-field="port"]').value),description:row.querySelector('[data-field="description"]').value.trim(),sources:csv(row.querySelector('[data-field="sources"]').value),disabled:!row.querySelector('[data-field="enabled"]').checked}))}
-$('addFirewallRule').onclick=()=>addFirewallRule();
-async function loadFirewallStatus(){try{const data=await api('/api/firewall/status',{method:'POST',body:JSON.stringify(routerConfig())});$('systemRules').innerHTML=(data.systemRules||[]).map(x=>`<span>${escapeHTML(x)}</span>`).join('');$('firewallResult').textContent=`${data.routerActive?'Режим маршрутизатора активен':'Режим маршрутизатора не применён'} · ${data.inSync?'конфигурация синхронизирована':'есть неприменённые изменения'}`}catch(e){toast(e.message,true)}}
+function addFirewallRule(rule={protocol:'tcp',port:443,description:'',sources:[],disabled:false}){const empty=$('firewallRules').querySelector('.empty-rules');if(empty)empty.remove();const row=document.createElement('div');row.className='rule-row';row.innerHTML=`<label>Протокол<select data-field="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>Порт<input data-field="port" type="number" min="1" max="65535" value="${Number(rule.port)||443}"></label><label>Описание<input data-field="description" maxlength="128" value="${escapeHTML(rule.description||'')}"></label><label>Источники IPv4/CIDR<input data-field="sources" value="${escapeHTML((rule.sources||[]).join(', '))}" placeholder="пусто = любой"></label><label class="switch-line"><input data-field="enabled" type="checkbox" ${rule.disabled?'':'checked'}><span>Вкл.</span></label><button type="button" class="btn danger remove-rule">Удалить</button>`;row.querySelector('[data-field=protocol]').value=rule.protocol||'tcp';row.querySelector('.remove-rule').onclick=()=>{row.remove();if(!$('firewallRules').querySelector('.rule-row'))renderFirewallRules([]);syncAccessCheckboxes()};row.addEventListener('input',syncAccessCheckboxes);box.append(row)}
+function syncAccessCheckboxes(){const rules=readFirewallRules();$('managerWanAccess').checked=portOpen(rules,Number($('managerPort').value));$('panelWanAccess').checked=portOpen(rules,Number($('panelPort').value))}
+$('managerPort').addEventListener('change',()=>{$('managerWanAccess').checked=portOpen(readFirewallRules(),Number($('managerPort').value))});
+$('panelPort').addEventListener('change',()=>{$('panelWanAccess').checked=portOpen(readFirewallRules(),Number($('panelPort').value));updatePanelURL()});
+$('addRule').onclick=()=>addFirewallRule();
+async function loadFirewallStatus(){try{const cfg=configFromForm(false),data=await api('/api/firewall/status',{method:'POST',body:JSON.stringify(cfg)});$('systemRules').innerHTML=(data.systemRules||[]).map(rule=>`<div class="row"><div class="row-title">${escapeHTML(rule)}</div><span class="badge locked">system</span></div>`).join('')||'<p class="muted">Системных правил нет.</p>';setMessage('firewallMessage',`${data.routerActive?'Маршрутизатор активен':'Маршрутизатор не активен'} · ${data.inSync?'правила синхронизированы':'есть неприменённые изменения'}`,!data.inSync&&data.routerActive)}catch(error){setMessage('firewallMessage',error.message,true)}}
 $('refreshFirewall').onclick=loadFirewallStatus;
-$('saveFirewall').onclick=async()=>{try{const result=await api('/api/firewall/apply',{method:'POST',body:JSON.stringify(routerConfig())});routerState=routerConfig();$('firewallResult').textContent=result.message;toast(result.applied?'Правила firewall применены':'Правила сохранены и будут применены вместе с режимом маршрутизатора');await loadFirewallStatus()}catch(e){toast(e.message,true)}};
+$('saveFirewall').onclick=async()=>{const button=$('saveFirewall');busy(button,true);try{const cfg=configFromForm(false);const result=await api('/api/firewall/apply',{method:'POST',body:JSON.stringify(cfg)});routerConfigState=cfg;firewallRules=cfg.wanPorts;setMessage('firewallMessage',result.message||'Правила сохранены');toast(result.applied?'Правила Firewall применены':'Правила сохранены');syncAccessCheckboxes();await loadFirewallStatus()}catch(error){setMessage('firewallMessage',error.message,true);toast(error.message,true)}finally{busy(button,false)}};
 
-async function loadDockerStatus(){try{const data=await api('/api/docker/status');const ready=data.installed&&data.daemonActive;$('xuiTab').disabled=!ready;$('xuiTab').title=ready?'':'Сначала запустите Docker';$('dockerSummary').innerHTML=`<b class="${ready?'ok':'bad'}">${ready?'Docker работает':'Docker не готов'}</b><span>${escapeHTML(data.version||'не установлен')}</span>${data.serverVersion?`<small>Engine ${escapeHTML(data.serverVersion)}</small>`:''}${data.error?`<small class="bad">${escapeHTML(data.error)}</small>`:''}`;$('containerList').innerHTML=(data.containers||[]).length?(data.containers||[]).map(c=>`<div class="container-row"><div><b>${escapeHTML(c.name)}</b><small>${escapeHTML(c.image)}</small></div><span class="${c.state==='running'?'ok':'bad'}">${escapeHTML(c.status||c.state)}</span><small>restart: ${escapeHTML(c.restartPolicy||'—')}</small></div>`).join(''):'<p class="muted">Контейнеров нет.</p>'}catch(e){$('dockerSummary').textContent=e.message}}
+async function loadDockerStatus(){
+  try{const data=await api('/api/docker/status');dockerState=data;const ready=data.installed&&data.daemonActive;$('xuiTab').disabled=!ready;$('xuiTab').title=ready?'':'Сначала запустите Docker';setBadge('dockerBadge',ready?'работает':data.installed?'остановлен':'не установлен',ready?'ok':data.installed?'warn':'bad');$('dockerFacts').innerHTML=[['Установлен',data.installed?'да':'нет'],['Daemon',data.daemonActive?'active':'inactive'],['CLI',data.version||'—'],['Engine',data.serverVersion||'—']].map(([key,value])=>`<div><dt>${key}</dt><dd>${escapeHTML(value)}</dd></div>`).join('');$('containerList').innerHTML=(data.containers||[]).map(c=>`<div class="row"><div class="row-main"><div class="row-title">${escapeHTML(c.name)}</div><div class="row-sub">${escapeHTML(c.image)} · restart: ${escapeHTML(c.restartPolicy||'—')}</div></div><span class="state ${c.state==='running'?'ok':'bad'}">${escapeHTML(c.status||c.state)}</span></div>`).join('')||'<p class="muted">Контейнеров нет.</p>';$('overviewDocker').textContent=ready?'ACTIVE':'NOT READY';$('overviewDocker').className=ready?'ok':'warn';const xui=(data.containers||[]).find(c=>String(c.name).includes('3x-ui'));setBadge('xuiBadge',xui?xui.state:'не установлен',xui?.state==='running'?'ok':xui?'warn':'bad')}catch(error){$('overviewDocker').textContent='ERROR';$('overviewDocker').className='bad';setBadge('dockerBadge','ошибка','bad');toast(error.message,true)}
+}
 $('refreshDocker').onclick=loadDockerStatus;
-$('installDocker').onclick=()=>operation('/api/docker/install',{},'Docker установлен или обновлён',$('dockerResult'),loadDockerStatus);
-document.querySelectorAll('[data-xui]').forEach(button=>button.onclick=()=>operation('/api/xui/action',{action:button.dataset.xui,panelPort:Number($('panelPort').value)},`3x-ui: ${button.textContent}`,$('serviceResult'),loadDockerStatus));
-$('bootstrapTun').onclick=()=>operation('/api/xui/bootstrap-tun',{panelUrl:$('panelUrl').value.trim(),apiToken:$('xuiToken').value,wanInterface:$('wanInterface').value},'TUN проверен',$('serviceResult'),()=>{$('xuiToken').value=''});
-async function operation(path,payload,message,target,after){target.textContent='Выполняется…';try{const result=await api(path,{method:'POST',body:JSON.stringify(payload)});target.textContent=result.message||message;toast(target.textContent);if(after)await after();await loadDiagnostics()}catch(e){target.textContent=e.message;toast(e.message,true)}}
+$('installDocker').onclick=()=>operation($('installDocker'),'/api/docker/install',{},'Docker установлен или обновлён','',loadDockerStatus);
+function updatePanelURL(){const port=Number($('panelPort').value)||2053;$('panelLink').href=`${location.protocol}//${location.hostname}:${port}`;$('panelUrl').value=`http://127.0.0.1:${port}`}
+$('applyXUISettings').onclick=async()=>{const button=$('applyXUISettings');busy(button,true);setMessage('xuiSettingsMessage','Применяем настройки…');try{const result=await api('/api/xui/settings',{method:'POST',body:JSON.stringify({panelPort:Number($('panelPort').value),wanAccess:$('panelWanAccess').checked})});setMessage('xuiSettingsMessage',result.message||'Настройки применены');toast('Настройки 3x-ui применены');await Promise.allSettled([loadState(),loadDockerStatus(),loadFirewallStatus()])}catch(error){setMessage('xuiSettingsMessage',error.message,true);toast(error.message,true)}finally{busy(button,false)}};
+document.querySelectorAll('[data-xui]').forEach(button=>button.onclick=()=>{const action=button.dataset.xui;const payload={action};if(action==='restore')payload.backupId=$('backupId').value.trim();return operation(button,'/api/xui/action',payload,`Операция ${action} выполнена`,'xuiMessage',loadDockerStatus)});
+$('tunForm').addEventListener('submit',event=>{event.preventDefault();return operation(event.submitter,'/api/xui/bootstrap-tun',{panelUrl:$('panelUrl').value.trim(),apiToken:$('apiToken').value,wanInterface:$('wanInterface').value},'TUN подготовлен','tunMessage',()=>{$('apiToken').value=''})});
+async function operation(button,path,payload,message,messageID,after){busy(button,true);if(messageID)setMessage(messageID,'Выполняется…');try{const result=await api(path,{method:'POST',body:JSON.stringify(payload)});const text=result.message||message;if(messageID)setMessage(messageID,text);toast(text);if(after)await after()}catch(error){if(messageID)setMessage(messageID,error.message,true);toast(error.message,true)}finally{busy(button,false)}}
 
-$('passwordForm').addEventListener('submit',async e=>{e.preventDefault();if($('newPassword').value!==$('confirmPassword').value){toast('Новый пароль и подтверждение не совпадают',true);return}try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword:$('currentPassword').value,newPassword:$('newPassword').value,confirmation:$('confirmPassword').value})});alert('Пароль изменён. Все сеансы завершены, войдите снова.');location.reload()}catch(err){toast(err.message,true)}});
-
-$('checkUpdates').onclick=loadReleases;$('includePrerelease').onchange=loadReleases;
-async function loadReleases(){try{const data=await api(`/api/manager/releases?prerelease=${$('includePrerelease').checked}`);releases=data.releases||[];currentVersion=data.currentVersion||'dev';const select=$('releaseVersion');select.innerHTML='';releases.forEach(r=>{const option=document.createElement('option');option.value=r.version;option.textContent=`${r.version}${r.prerelease?' · prerelease':''}${r.version===currentVersion?' · установлена':''}`;select.append(option)});if(!releases.length){select.innerHTML='<option>Подходящих релизов нет</option>';select.disabled=true;$('installUpdate').disabled=true}else{select.disabled=false;$('installUpdate').disabled=false}select.onchange=syncUpdateRisk;syncUpdateRisk();$('updateResult').textContent=`Текущая версия: ${currentVersion}`}catch(e){$('updateResult').textContent=e.message;toast(e.message,true)}}
-function versionParts(value){const m=String(value).replace(/^v/,'').split('-')[0].split('.').map(Number);return m.every(Number.isFinite)?m:null}
+$('passwordForm').addEventListener('submit',async event=>{event.preventDefault();if($('newPassword').value!==$('confirmPassword').value){toast('Новый пароль и подтверждение не совпадают',true);return}const button=event.submitter;busy(button,true);try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword:$('currentPassword').value,newPassword:$('newPassword').value,confirmation:$('confirmPassword').value})});alert('Пароль изменён. Все сеансы завершены.');location.reload()}catch(error){toast(error.message,true)}finally{busy(button,false)}});
+$('checkUpdates').onclick=loadReleases;
+async function loadReleases(){const button=$('checkUpdates');busy(button,true,'Проверяем…');try{const data=await api('/api/manager/releases');releases=data.releases||[];currentVersion=data.currentVersion||'dev';$('overviewVersion').textContent=currentVersion;setBadge('releaseBadge',currentVersion,'ok');const select=$('releaseSelect');select.innerHTML=releases.map(item=>`<option value="${escapeHTML(item.version)}">${escapeHTML(item.version)}${item.prerelease?' · prerelease':''}${item.version===currentVersion?' · установлена':''}</option>`).join('');$('releaseText').textContent=releases.length?`Доступно версий: ${releases.length}. Выберите целевую версию.`:'Подходящих релизов не найдено.';select.classList.toggle('hidden',!releases.length);$('updateManager').classList.toggle('hidden',!releases.length)}catch(error){setBadge('releaseBadge','ошибка','bad');$('releaseText').textContent=error.message;toast(error.message,true)}finally{busy(button,false)}}
+function versionParts(value){const parts=String(value).replace(/^v/,'').split('-')[0].split('.').map(Number);return parts.every(Number.isFinite)?parts:null}
 function older(a,b){const x=versionParts(a),y=versionParts(b);if(!x||!y)return false;for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return(x[i]||0)<(y[i]||0)}return false}
-function syncUpdateRisk(){const chosen=releases.find(r=>r.version===$('releaseVersion').value),risk=chosen&&(chosen.prerelease||older(chosen.version,currentVersion));$('updateRiskWrap').classList.toggle('hidden',!risk);if(!risk)$('updateRisk').checked=false}
-$('installUpdate').onclick=async()=>{const version=$('releaseVersion').value,chosen=releases.find(r=>r.version===version);if(!chosen)return;const risk=chosen.prerelease||older(version,currentVersion);if(risk&&!$('updateRisk').checked){toast('Подтвердите риск выбранной версии',true);return}if(!confirm(`Установить NanoPi Manager ${version}? Службы будут перезапущены; при неуспешной проверке версия откатится автоматически.`))return;try{const result=await api('/api/manager/update',{method:'POST',body:JSON.stringify({version,confirmRisk:risk&&$('updateRisk').checked})});$('updateResult').textContent=result.message;toast('Обновление запланировано, ожидайте перезапуска');setTimeout(()=>location.reload(),6000)}catch(e){$('updateResult').textContent=e.message;toast(e.message,true)}};
+$('updateManager').onclick=async()=>{const version=$('releaseSelect').value,chosen=releases.find(item=>item.version===version);if(!chosen)return;const risk=chosen.prerelease||older(version,currentVersion);if(risk&&!confirm(`Версия ${version} является предварительной или старше текущей. Продолжить?`))return;if(!risk&&!confirm(`Установить NanoPi Manager ${version}? Службы будут перезапущены.`))return;const button=$('updateManager');busy(button,true,'Запускаем…');try{const result=await api('/api/manager/update',{method:'POST',body:JSON.stringify({version,confirmRisk:risk})});toast(result.message||'Обновление запланировано');setTimeout(()=>location.reload(),6500)}catch(error){toast(error.message,true);busy(button,false)}};
 
-async function loadDiagnostics(){try{const data=await api('/api/diagnostics');const comps=data.components||[];$('diagnosticsGrid').innerHTML=comps.map(c=>`<article class="diag-item"><b class="${c.ok?'ok':'bad'}">${c.ok?'●':'○'} ${escapeHTML(c.name)}</b><span>${escapeHTML(c.summary)}</span>${c.detail?`<small>${escapeHTML(c.detail)}</small>`:''}</article>`).join('');$('statusGrid').innerHTML=comps.slice(0,6).map(c=>`<article class="status-item"><b>${escapeHTML(c.name)}</b><span class="${c.ok?'ok':'bad'}">${escapeHTML(c.summary)}</span></article>`).join('')}catch(e){toast(e.message,true)}}
-$('refreshDiagnostics').onclick=loadDiagnostics;$('refreshAll').onclick=loadAll;
-function escapeHTML(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+async function loadDiagnostics(){try{const data=await api('/api/diagnostics');$('diagnosticsTime').textContent=`Сформировано: ${new Date(data.generatedAt).toLocaleString()}`;$('diagnosticsList').innerHTML=(data.components||[]).map(c=>`<div class="row"><div class="row-main"><div class="row-title">${escapeHTML(c.name)}</div><div class="row-sub">${escapeHTML(c.summary)}${c.detail?` · ${escapeHTML(c.detail)}`:''}</div></div><span class="state ${c.ok?'ok':'bad'}">${c.ok?'OK':'ERROR'}</span></div>`).join('')||'<p class="muted">Компоненты не вернули данные.</p>';return data}catch(error){toast(error.message,true)}}
+$('runDiagnostics').onclick=loadDiagnostics;
 boot();

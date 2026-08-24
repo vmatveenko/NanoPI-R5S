@@ -5,122 +5,95 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>NanoPi Manager</title>
   <link rel="stylesheet" href="/app.css">
-  <link rel="stylesheet" href="/links.css">
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div><p class="eyebrow">LOCAL ROUTER CONTROL</p><h1>NanoPi Manager</h1></div>
-      <div id="userArea" class="user-area hidden"><span id="username"></span><button id="logout" class="ghost">Выйти</button></div>
-    </header>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="NanoPi Manager"><b>NPM</b><span>//ROUTER</span></a>
+    <div id="userArea" class="top-actions hidden"><span id="username"></span><button id="logout" class="btn quiet">Выйти</button></div>
+  </header>
 
-    <section id="authView" class="auth-card">
-      <div class="auth-copy"><span class="status-dot"></span><p id="authHint">Проверяем состояние службы…</p></div>
+  <main id="authView" class="auth-shell">
+    <section class="auth-card">
+      <p class="kicker">LOCAL CONTROL PLANE</p>
+      <h1>Управление маршрутизатором</h1>
+      <p id="authHint" class="muted">Проверяем состояние службы…</p>
       <form id="authForm" class="stack hidden">
-        <label>Логин<input id="authUsername" autocomplete="username" minlength="4" maxlength="64" required></label>
-        <label>Пароль<input id="authPassword" type="password" autocomplete="new-password" maxlength="256" required></label>
-        <button id="authSubmit" type="submit">Продолжить</button>
+        <label>Логин<input id="authUsername" autocomplete="username" maxlength="64" required></label>
+        <label>Пароль<input id="authPassword" type="password" autocomplete="current-password" maxlength="256" required></label>
+        <button id="authSubmit" class="btn primary" type="submit">Продолжить</button>
       </form>
-      <p id="authError" class="error"></p>
+      <p id="authError" class="message error"></p>
     </section>
-
-    <section id="appView" class="workspace hidden">
-      <nav class="side-nav" aria-label="Разделы">
-        <button data-target="overview" class="active"><span>01</span>Обзор</button>
-        <button data-target="router"><span>02</span>Маршрутизатор</button>
-        <button data-target="firewall"><span>03</span>Firewall</button>
-        <button data-target="docker"><span>04</span>Docker</button>
-        <button id="xuiTab" data-target="xui" disabled title="Сначала запустите Docker"><span>05</span>3x-ui и Xray</button>
-        <button data-target="diagnostics"><span>06</span>Диагностика</button>
-      </nav>
-
-      <div class="pages">
-        <section id="overview" class="page active">
-          <div class="hero card">
-            <div><p class="eyebrow">СОСТОЯНИЕ УСТРОЙСТВА</p><h2 id="hostName">NanoPi</h2><p id="hostMeta" class="muted">Загрузка инвентаризации…</p></div>
-            <button id="refreshAll" class="secondary">Обновить</button>
-          </div>
-          <div id="statusGrid" class="status-grid"></div>
-          <div class="two-col">
-            <article class="card">
-              <h3>Обновление Manager</h3>
-              <p class="muted">Проверка выполняется вручную по опубликованным GitHub Releases.</p>
-              <label class="inline-check"><input id="includePrerelease" type="checkbox"> Показывать предварительные версии</label>
-              <div class="button-row"><button id="checkUpdates">Проверить версии</button><select id="releaseVersion" aria-label="Версия Manager" disabled><option>Сначала проверьте версии</option></select></div>
-              <label id="updateRiskWrap" class="inline-check hidden"><input id="updateRisk" type="checkbox"> Подтверждаю установку предварительной или более старой версии</label>
-              <button id="installUpdate" class="danger" disabled>Установить выбранную версию</button>
-              <p id="updateResult" class="result"></p>
-            </article>
-            <article class="card">
-              <h3>Смена пароля</h3>
-              <form id="passwordForm" class="stack compact">
-                <label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label>
-                <label>Новый пароль<input id="newPassword" type="password" autocomplete="new-password" maxlength="256" required></label>
-                <label>Повтор нового пароля<input id="confirmPassword" type="password" autocomplete="new-password" maxlength="256" required></label>
-                <button type="submit">Сменить пароль</button>
-              </form>
-            </article>
-          </div>
-          <div class="card notice"><strong>Граница доступа</strong><p>По умолчанию Manager доступен из LAN. Открытие HTTP-доступа с WAN настраивается отдельно в режиме маршрутизатора.</p></div>
-        </section>
-
-        <section id="router" class="page">
-          <div class="section-head"><div><p class="eyebrow">ЭТАП 1</p><h2>Linux-маршрутизатор</h2></div><span class="pill">IPv4 only</span></div>
-          <div class="card router-state"><div><b>Режим маршрутизатора</b><p id="routerStatusText" class="muted">Проверяем…</p></div><button id="deactivateRouter" class="danger" disabled>Откатить режим полностью</button></div>
-          <form id="routerForm" class="card form-grid">
-            <label>WAN-интерфейс<select id="wanInterface" required></select></label>
-            <fieldset><legend>LAN-интерфейсы</legend><div id="lanInterfaces" class="checks"></div></fieldset>
-            <label>Имя bridge<input id="bridge" value="br0" required></label>
-            <label>LAN CIDR<input id="lanCidr" value="192.168.10.1/24" required></label>
-            <label>DHCP от<input id="dhcpStart" value="192.168.10.10" required></label>
-            <label>DHCP до<input id="dhcpEnd" value="192.168.10.200" required></label>
-            <label class="wide">DNS для клиентов<input id="dns" value="8.8.8.8, 1.1.1.1" required></label>
-            <label>Режим MAC WAN<select id="macMode"><option value="current">Текущий</option><option value="factory">Заводской</option><option value="manual">Указать вручную</option><option value="random">Случайный локальный</option><option value="clone">Клонировать MAC</option></select></label>
-            <label>MAC WAN<input id="wanMac" placeholder="aa:bb:cc:dd:ee:ff"></label>
-            <label>Порт Manager<input id="managerPort" type="number" min="1" max="65535" value="8080"></label>
-            <label>Порт 3x-ui<input id="panelPort" type="number" min="1" max="65535" value="2053"></label>
-            <fieldset class="wide wan-access"><legend>Доступ к Manager из WAN</legend>
-              <label class="inline-check"><input id="managerWanAccess" type="checkbox"> Открыть текущий порт Manager на WAN</label>
-              <label>Разрешённые IPv4/CIDR через запятую<input id="managerWanSources" placeholder="203.0.113.10, 198.51.100.0/24"></label>
-              <small class="warning-text">Панель использует HTTP без TLS. Пустой список адресов откроет порт для всего интернета.</small>
-            </fieldset>
-            <div class="wide actions"><button type="submit">Проверить план</button><button id="applyRouter" type="button" class="danger" disabled>Применить с откатом</button></div>
-          </form>
-          <div id="planCard" class="card hidden"><div class="section-head"><h3>План изменений</h3><span id="planBadge" class="pill">не применён</span></div><div id="planWarnings" class="warnings"></div><pre id="planOutput"></pre></div>
-          <div id="rollbackCard" class="card rollback hidden"><h3>Подтвердите доступ</h3><p>Если страница работает после применения, подтвердите конфигурацию. Иначе через 120 секунд восстановится предыдущая версия.</p><div class="countdown" id="countdown">120</div><button id="confirmRouter">Подтвердить</button><button id="rollbackRouter" class="secondary">Откатить сейчас</button></div>
-        </section>
-
-        <section id="firewall" class="page">
-          <div class="section-head"><div><p class="eyebrow">NFTABLES</p><h2>Firewall</h2></div><button id="refreshFirewall" class="secondary">Проверить состояние</button></div>
-          <div class="card notice"><strong>Управляемая область</strong><p>Здесь изменяются только пользовательские входящие WAN-правила TCP/UDP. Системные правила маршрутизатора защищены от редактирования.</p></div>
-          <article class="card"><div class="section-head"><h3>Пользовательские WAN-порты</h3><button id="addFirewallRule">Добавить правило</button></div><div id="firewallRules" class="rule-list"></div><div class="actions"><button id="saveFirewall" class="danger">Сохранить и применить</button></div><p id="firewallResult" class="result"></p></article>
-          <article class="card"><h3>Системные правила — только чтение</h3><div id="systemRules" class="system-rules"><span>loopback</span><span>established/related</span><span>ICMP</span><span>LAN input</span><span>WAN DHCP response</span><span>LAN forwarding</span><span>NAT masquerade</span></div></article>
-        </section>
-
-        <section id="docker" class="page">
-          <div class="section-head"><div><p class="eyebrow">ЭТАП 2</p><h2>Docker</h2></div><button id="refreshDocker" class="secondary">Обновить состояние</button></div>
-          <article class="card"><div id="dockerSummary" class="service-summary">Проверяем Docker…</div><button id="installDocker">Установить / обновить Docker</button></article>
-          <article class="card"><h3>Контейнеры</h3><div id="containerList" class="container-list"><p class="muted">Нет данных</p></div></article>
-          <p id="dockerResult" class="result"></p>
-        </section>
-
-        <section id="xui" class="page">
-          <div class="section-head"><div><p class="eyebrow">ЭТАП 3</p><h2>3x-ui и Xray</h2></div></div>
-          <div class="two-col">
-            <article class="card"><h3>3x-ui</h3><p class="muted">Host network, постоянные данные, NET_ADMIN и /dev/net/tun.</p><div class="button-row"><button data-xui="install">Установить / обновить</button><button data-xui="restart" class="secondary">Перезапустить</button><button data-xui="stop" class="secondary">Остановить</button></div><div class="button-row"><button data-xui="backup" class="secondary">Создать backup</button><button data-xui="restore" class="secondary">Восстановить последний</button></div></article>
-            <article class="card"><h3>Xray TUN для LAN</h3><p class="muted">Создаёт <code>xray0</code> через API 3x-ui. Токен не сохраняется.</p><label>Локальный URL панели<input id="panelUrl" value="http://127.0.0.1:2053"></label><label>API token 3x-ui<input id="xuiToken" type="password" autocomplete="off"></label><button id="bootstrapTun">Создать / проверить TUN</button></article>
-          </div>
-          <p id="serviceResult" class="result"></p>
-        </section>
-
-        <section id="diagnostics" class="page">
-          <div class="section-head"><div><p class="eyebrow">ПРОВЕРКА</p><h2>Диагностика</h2></div><div class="button-row"><a class="button-link" href="/api/diagnostics/export">Экспорт JSON</a><button id="refreshDiagnostics" class="secondary">Обновить</button></div></div>
-          <div id="diagnosticsGrid" class="diag-grid"></div>
-        </section>
-      </div>
-    </section>
-    <div id="toast" role="status" aria-live="polite"></div>
   </main>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <nav id="nav" aria-label="Разделы">
+        <button data-target="overview" class="active"><i>01</i><span>Обзор</span></button>
+        <button data-target="router"><i>02</i><span>Маршрутизатор</span></button>
+        <button data-target="firewall"><i>03</i><span>Firewall</span></button>
+        <button data-target="docker"><i>04</i><span>Docker</span></button>
+        <button id="xuiTab" data-target="xui" disabled title="Сначала запустите Docker"><i>05</i><span>3x-ui / Xray</span></button>
+        <button data-target="diagnostics"><i>06</i><span>Диагностика</span></button>
+      </nav>
+      <div class="sidebar-foot"><span class="pulse"></span><span id="sidebarStatus">AGENT: CHECKING</span></div>
+    </aside>
+
+    <main class="content">
+      <div class="page-head"><div><p id="breadcrumb" class="kicker">SYSTEM / OVERVIEW</p><h1 id="pageTitle">Обзор</h1></div><button id="refreshPage" class="btn quiet">Обновить</button></div>
+
+      <section id="overview" class="page active">
+        <div class="status-strip">
+          <div><span>ROUTER</span><strong id="overviewRouter">—</strong></div>
+          <div><span>DOCKER</span><strong id="overviewDocker">—</strong></div>
+          <div><span>AGENT</span><strong id="overviewAgent">—</strong></div>
+          <div><span>VERSION</span><strong id="overviewVersion">—</strong></div>
+        </div>
+        <div class="grid two">
+          <article class="panel"><header><div><p class="kicker">DEVICE</p><h2>Система</h2></div></header><dl id="systemFacts" class="facts"></dl></article>
+          <article class="panel"><header><div><p class="kicker">NETWORK</p><h2>Интерфейсы</h2></div></header><div id="interfaceList" class="rows"></div></article>
+          <article class="panel"><header><div><p class="kicker">MANAGER</p><h2>Обновление</h2></div><span id="releaseBadge" class="badge">не проверено</span></header><p id="releaseText" class="muted">Проверка выполняется только по вашей команде.</p><div class="actions"><button id="checkUpdates" class="btn">Проверить версию</button><select id="releaseSelect" class="hidden"></select><button id="updateManager" class="btn primary hidden">Обновить</button></div></article>
+          <article class="panel"><header><div><p class="kicker">ACCOUNT</p><h2>Смена пароля</h2></div></header><form id="passwordForm" class="stack"><label>Текущий пароль<input id="currentPassword" type="password" autocomplete="current-password" required></label><label>Новый пароль<input id="newPassword" type="password" autocomplete="new-password" required></label><label>Повторите новый пароль<input id="confirmPassword" type="password" autocomplete="new-password" required></label><button class="btn" type="submit">Сменить пароль</button></form></article>
+        </div>
+      </section>
+
+      <section id="router" class="page">
+        <div class="section-status"><div><span class="pulse"></span><strong id="routerMode">Состояние неизвестно</strong></div><span id="routerDetail" class="muted"></span></div>
+        <form id="routerForm">
+          <article class="panel"><header><div><p class="kicker">UPLINK</p><h2>WAN</h2></div></header><div class="form-grid"><label class="span-2">WAN-интерфейс<select id="wanInterface" required></select></label><label>MAC-режим<select id="wanMacMode"><option value="current">Текущий MAC</option><option value="factory">Заводской MAC</option><option value="clone">Копировать с другого порта</option><option value="random">Случайный локальный MAC</option><option value="manual">Указать вручную</option></select></label><label>MAC-адрес<input id="wanMac" placeholder="AA:BB:CC:DD:EE:FF"></label></div></article>
+          <article class="panel"><header><div><p class="kicker">LOCAL NETWORK</p><h2>LAN и DHCP</h2></div></header><fieldset><legend>LAN-интерфейсы</legend><div id="lanInterfaces" class="checks"></div></fieldset><div class="form-grid"><label>Bridge<input id="bridge" required></label><label>LAN CIDR<input id="lanCidr" required></label><label>DHCP от<input id="dhcpStart" required></label><label>DHCP до<input id="dhcpEnd" required></label><label class="span-2">DNS, через запятую<input id="dns" required></label></div></article>
+          <article class="panel"><header><div><p class="kicker">CONTROL PLANE</p><h2>Панель Manager</h2></div></header><div class="form-grid"><label>Порт Manager<input id="managerPort" type="number" min="1" max="65535" required></label><label class="switch-line"><input id="managerWanAccess" type="checkbox"><span>Открыть текущий порт Manager на WAN</span></label></div><p class="note">Флажок управляет обычным TCP-правилом. Источники и описание можно изменить во вкладке Firewall.</p></article>
+          <div class="actions sticky-actions"><button id="applyRouter" class="btn primary" type="submit">Применить</button><button id="deactivateRouter" class="btn danger" type="button">Откатить режим маршрутизатора</button><span id="routerMessage" class="message"></span></div>
+        </form>
+      </section>
+
+      <section id="firewall" class="page">
+        <article class="panel"><header><div><p class="kicker">WAN INPUT</p><h2>Пользовательские правила</h2></div><button id="addRule" class="btn">Добавить правило</button></header><p class="note">Управляются только входящие TCP/UDP-порты. Пустой список источников означает доступ с любого IP. Системные правила показаны только для чтения.</p><div id="firewallRules" class="rule-table"></div><div class="actions"><button id="saveFirewall" class="btn primary">Применить правила</button><button id="refreshFirewall" class="btn quiet">Сверить с устройством</button><span id="firewallMessage" class="message"></span></div></article>
+        <article class="panel"><header><div><p class="kicker">SYSTEM</p><h2>Системные правила</h2></div><span class="badge locked">только чтение</span></header><div id="systemRules" class="rows"></div></article>
+      </section>
+
+      <section id="docker" class="page">
+        <div class="grid two">
+          <article class="panel"><header><div><p class="kicker">ENGINE</p><h2>Docker</h2></div><span id="dockerBadge" class="badge">—</span></header><dl id="dockerFacts" class="facts"></dl><div class="actions"><button id="installDocker" class="btn primary">Установить / обновить Docker</button><button id="refreshDocker" class="btn quiet">Обновить состояние</button></div></article>
+          <article class="panel"><header><div><p class="kicker">RUNTIME</p><h2>Контейнеры</h2></div></header><div id="containerList" class="rows"></div></article>
+        </div>
+      </section>
+
+      <section id="xui" class="page">
+        <article class="panel"><header><div><p class="kicker">PANEL</p><h2>3x-ui</h2></div><span id="xuiBadge" class="badge">—</span></header><div class="form-grid"><label>Порт панели<input id="panelPort" type="number" min="1" max="65535" required></label><label class="switch-line"><input id="panelWanAccess" type="checkbox"><span>Открыть текущий порт панели на WAN</span></label></div><p class="note">Смена порта контейнера и связанного TCP-правила выполняется одной операцией. Ограничения источников меняются во вкладке Firewall.</p><div class="actions"><button id="applyXUISettings" class="btn primary">Применить настройки панели</button><a id="panelLink" class="btn quiet" href="#" target="_blank" rel="noreferrer">Открыть панель</a><span id="xuiSettingsMessage" class="message"></span></div></article>
+        <div class="grid two">
+          <article class="panel"><header><div><p class="kicker">LIFECYCLE</p><h2>Контейнер</h2></div></header><div class="actions wrap"><button data-xui="install" class="btn primary">Установить</button><button data-xui="update" class="btn">Обновить</button><button data-xui="start" class="btn">Запустить</button><button data-xui="stop" class="btn">Остановить</button><button data-xui="remove" class="btn danger">Удалить</button></div><label>ID резервной копии<input id="backupId" placeholder="для восстановления"></label><button data-xui="restore" class="btn">Восстановить</button><p id="xuiMessage" class="message"></p></article>
+          <article class="panel"><header><div><p class="kicker">X-RAY</p><h2>Подготовка TUN</h2></div></header><form id="tunForm" class="stack"><label>URL панели<input id="panelUrl" type="url" required></label><label>API-токен<input id="apiToken" type="password" required></label><button class="btn" type="submit">Подготовить TUN</button></form><p id="tunMessage" class="message"></p></article>
+        </div>
+      </section>
+
+      <section id="diagnostics" class="page">
+        <article class="panel"><header><div><p class="kicker">HEALTH CHECK</p><h2>Диагностика</h2></div><div class="actions"><button id="runDiagnostics" class="btn primary">Запустить</button><a class="btn quiet" href="/api/diagnostics/export">Экспорт JSON</a></div></header><p id="diagnosticsTime" class="muted">Проверка ещё не запускалась.</p><div id="diagnosticsList" class="rows"></div></article>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
   <script src="/app.js" defer></script>
 </body>
 </html>

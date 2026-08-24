@@ -108,16 +108,8 @@ func Validate(cfg model.RouterConfig, available []model.Interface) error {
 	if len(cfg.DNS) == 0 {
 		problems = append(problems, "at least one DNS server is required")
 	}
-	if cfg.ManagerPort < 1 || cfg.ManagerPort > 65535 || cfg.PanelPort < 1 || cfg.PanelPort > 65535 {
-		problems = append(problems, "manager and panel ports must be between 1 and 65535")
-	}
-	if cfg.ManagerPort == cfg.PanelPort {
-		problems = append(problems, "manager and 3x-ui panel ports must differ")
-	}
-	for _, source := range cfg.ManagerWANSources {
-		if !validIPv4Source(source) {
-			problems = append(problems, "invalid Manager WAN source: "+source)
-		}
+	if cfg.ManagerPort < 1 || cfg.ManagerPort > 65535 {
+		problems = append(problems, "manager port must be between 1 and 65535")
 	}
 	if err := validateMAC(cfg); err != nil {
 		problems = append(problems, err.Error())
@@ -143,9 +135,6 @@ func Validate(cfg model.RouterConfig, available []model.Interface) error {
 			if !validIPv4Source(source) {
 				problems = append(problems, "invalid WAN source for "+key+": "+source)
 			}
-		}
-		if protocol == "tcp" && (rule.Port == cfg.ManagerPort || rule.Port == cfg.PanelPort) {
-			problems = append(problems, "management panels cannot be opened through WAN port rules")
 		}
 	}
 	if len(problems) > 0 {

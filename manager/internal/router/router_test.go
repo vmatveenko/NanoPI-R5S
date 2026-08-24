@@ -50,9 +50,8 @@ func TestBuildPlanUsesDynamicInterfacesAndProtectsPanels(t *testing.T) {
 
 func TestWANRulesSupportSourcesDisableAndManagerAccess(t *testing.T) {
 	cfg := validConfig()
-	cfg.ManagerWANAccess = true
-	cfg.ManagerWANSources = []string{"203.0.113.10", "198.51.100.0/24"}
 	cfg.WANPorts = []model.PortRule{
+		{Protocol: "tcp", Port: 8080, Description: "NanoPi Manager", Sources: []string{"203.0.113.10", "198.51.100.0/24"}},
 		{Protocol: "tcp", Port: 443, Description: "VLESS", Sources: []string{"203.0.113.0/24"}},
 		{Protocol: "udp", Port: 8443, Description: "disabled", Disabled: true},
 	}
@@ -67,7 +66,7 @@ func TestWANRulesSupportSourcesDisableAndManagerAccess(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		`ip saddr { 198.51.100.0/24, 203.0.113.10 } tcp dport 8080 ct state new accept comment "NanoPi Manager WAN"`,
+		`ip saddr { 198.51.100.0/24, 203.0.113.10 } tcp dport 8080 ct state new accept comment "NanoPi Manager"`,
 		`ip saddr { 203.0.113.0/24 } tcp dport 443 ct state new accept comment "VLESS"`,
 	} {
 		if !strings.Contains(nft, expected) {
@@ -84,11 +83,6 @@ func TestRejectsUnsafeConfiguration(t *testing.T) {
 	cfg.LANInterfaces = []string{"eth0"}
 	if err := Validate(cfg, nil); err == nil {
 		t.Fatal("conflicting WAN/LAN accepted")
-	}
-	cfg = validConfig()
-	cfg.WANPorts = []model.PortRule{{Protocol: "tcp", Port: cfg.ManagerPort}}
-	if err := Validate(cfg, nil); err == nil {
-		t.Fatal("WAN manager port accepted")
 	}
 	cfg = validConfig()
 	cfg.DHCPStart = "10.0.0.2"

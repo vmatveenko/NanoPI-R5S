@@ -17,10 +17,6 @@ func BuildPlan(cfg model.RouterConfig, available []model.Interface) (model.Plan,
 	if cfg.ManagerPort == 0 {
 		cfg.ManagerPort = model.DefaultManagerPort
 	}
-	if cfg.PanelPort == 0 {
-		cfg.PanelPort = model.DefaultPanelPort
-	}
-	cfg.ManagerWANSources = normalizeSources(cfg.ManagerWANSources)
 	for index := range cfg.WANPorts {
 		cfg.WANPorts[index].Protocol = strings.ToLower(strings.TrimSpace(cfg.WANPorts[index].Protocol))
 		cfg.WANPorts[index].Description = strings.TrimSpace(cfg.WANPorts[index].Description)
@@ -58,11 +54,7 @@ func BuildPlan(cfg model.RouterConfig, available []model.Interface) (model.Plan,
 		"Applying network configuration can interrupt the current connection.",
 		"The change must be confirmed within 120 seconds or it will be rolled back.",
 	}
-	if cfg.ManagerWANAccess {
-		warnings = append(warnings, "Manager is exposed on WAN over HTTP without TLS; use source filtering whenever possible.")
-	} else {
-		warnings = append(warnings, "Manager and 3x-ui panels remain blocked from WAN.")
-	}
+	warnings = append(warnings, "WAN access is controlled by explicit user firewall rules.")
 	return model.Plan{
 		Config: cfg,
 		Files:  files,
@@ -139,9 +131,6 @@ func renderNFTables(cfg model.RouterConfig) string {
 	b.WriteString("    ip protocol icmp accept\n")
 	fmt.Fprintf(&b, "    iifname \"%s\" accept\n", cfg.Bridge)
 	fmt.Fprintf(&b, "    iifname \"%s\" udp sport 67 udp dport 68 accept\n", cfg.WANInterface)
-	if cfg.ManagerWANAccess {
-		writeWANAcceptRule(&b, cfg.WANInterface, "tcp", cfg.ManagerPort, cfg.ManagerWANSources, "NanoPi Manager WAN")
-	}
 	for _, rule := range cfg.WANPorts {
 		if !rule.Disabled {
 			writeWANAcceptRule(&b, cfg.WANInterface, rule.Protocol, rule.Port, rule.Sources, rule.Description)
