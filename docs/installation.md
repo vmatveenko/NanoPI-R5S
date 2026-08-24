@@ -12,7 +12,7 @@
 ```bash
 sudo apt-get update
 sudo apt-get install -y git
-git clone --branch v0.1.1 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
+git clone --branch v0.2.0 --depth 1 https://github.com/vmatveenko/NanoPI-R5S.git ~/nanopi-manager
 cd ~/nanopi-manager
 chmod +x scripts/install-manager.sh
 sudo ./scripts/install-manager.sh install
@@ -22,7 +22,7 @@ systemctl status nanopi-manager-agent nanopi-manager-web --no-pager
 По умолчанию установщик скачивает готовые бинарники `arm64` или `amd64` из последнего GitHub Release. Для фиксированной версии:
 
 ```bash
-sudo NANOPI_MANAGER_VERSION=v0.1.1 ./scripts/install-manager.sh install
+sudo NANOPI_MANAGER_VERSION=v0.2.0 ./scripts/install-manager.sh install
 ```
 
 Сборка текущего checkout вместо загрузки Release включается явно:
