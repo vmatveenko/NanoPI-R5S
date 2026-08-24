@@ -407,8 +407,12 @@ func (s *Server) normalizeRouterRequest(cfg model.RouterConfig) model.RouterConf
 		previous = *stored
 	}
 	cfg.WANPorts = model.SetTCPPortAccess(cfg.WANPorts, previous.ManagerPort, cfg.ManagerPort, cfg.ManagerWANAccess, "NanoPi Manager")
+	if cfg.SSHWANAccess != nil {
+		cfg.WANPorts = model.SetTCPPortAccess(cfg.WANPorts, 22, 22, *cfg.SSHWANAccess, "SSH")
+	}
 	cfg.ManagerWANAccess = false
 	cfg.ManagerWANSources = nil
+	cfg.SSHWANAccess = nil
 	cfg.PanelPort = 0
 	return cfg
 }

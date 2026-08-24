@@ -77,6 +77,9 @@ type RouterConfig struct {
 	// state and older API clients. WAN access is represented by WANPorts.
 	ManagerWANAccess  bool     `json:"managerWanAccess,omitempty"`
 	ManagerWANSources []string `json:"managerWanSources,omitempty"`
+	// SSHWANAccess is a request-only convenience flag. The server normalizes it
+	// into an ordinary TCP/22 WANPorts rule before validating or storing state.
+	SSHWANAccess *bool `json:"sshWanAccess,omitempty"`
 	// PanelPort is a v0.2.0 compatibility field. New state stores it in XUIConfig.
 	PanelPort int        `json:"panelPort,omitempty"`
 	WANPorts  []PortRule `json:"wanPorts,omitempty"`

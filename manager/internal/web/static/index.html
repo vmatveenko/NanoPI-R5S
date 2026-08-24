@@ -104,12 +104,11 @@
           <div class="detail-columns">
             <section class="form-card">
               <header><span>01</span><div><small>INTERFACE MAP</small><h3>Интерфейсы и адресация</h3></div></header>
+              <label class="topology-wan"><span>WAN-интерфейс</span><select id="wanInterface" required></select></label>
               <div id="routerTopology" class="port-diagram"><div class="port wan"><i></i>WAN<small>pending</small></div><b>→</b><div class="bridge-node">BR0<strong>pending</strong></div><b>→</b><div class="port"><i></i>LAN<small>pending</small></div></div>
               <div class="field-grid">
-                <label class="wide"><span>WAN-интерфейс</span><select id="wanInterface" required></select></label>
                 <label><span>MAC-режим</span><select id="wanMacMode"><option value="current">Текущий MAC</option><option value="factory">Заводской MAC</option><option value="clone">Копировать с другого порта</option><option value="random">Случайный локальный MAC</option><option value="manual">Указать вручную</option></select></label>
                 <label><span>MAC-адрес</span><input id="wanMac" placeholder="AA:BB:CC:DD:EE:FF"></label>
-                <fieldset class="wide"><legend>LAN-интерфейсы</legend><div id="lanInterfaces" class="checks"></div></fieldset>
                 <label><span>Имя bridge</span><input id="bridge" required></label>
                 <label><span>LAN CIDR</span><input id="lanCidr" required></label>
                 <label><span>DHCP от</span><input id="dhcpStart" required></label>
@@ -118,15 +117,13 @@
               </div>
             </section>
             <aside class="plan-card">
-              <small>CHANGE CONTROL</small><h3>План применения</h3>
-              <ol><li><b>01</b>Проверить интерфейсы</li><li><b>02</b>Создать bridge и NAT</li><li><b>03</b>Применить DHCP</li><li><b>04</b>Проверить связь</li></ol>
+              <small>ACCESS CONTROL</small><h3>Доступ к управлению</h3>
               <div class="manager-fields">
                 <label><span>Порт Manager</span><input id="managerPort" type="number" min="1" max="65535" required></label>
-                <label class="switch-line"><input id="managerWanAccess" type="checkbox"><span>Разрешить Manager на WAN</span></label>
+                <label class="checkbox-line"><input id="managerWanAccess" type="checkbox"><span>Разрешить доступ к Manager через WAN</span></label>
+                <label class="checkbox-line"><input id="sshWanAccess" type="checkbox"><span>Разрешить доступ к SSH через WAN</span></label>
               </div>
-              <p>Автоматический откат через <strong>120 сек</strong></p>
-              <div id="rollbackCountdown" class="countdown hidden"><span>ROLLBACK WINDOW</span><strong>02:00</strong></div>
-              <button id="applyRouter" class="btn primary" type="submit">ПРИМЕНИТЬ С ОТКАТОМ</button>
+              <button id="applyRouter" class="btn primary" type="submit" disabled>ПРИМЕНИТЬ</button>
               <p id="routerMessage" class="message"></p>
             </aside>
           </div>

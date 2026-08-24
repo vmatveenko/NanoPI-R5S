@@ -16,6 +16,7 @@ import (
 
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/agent"
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/config"
+	"github.com/vmatveenko/nanopi-r5s/manager/internal/model"
 	"github.com/vmatveenko/nanopi-r5s/manager/internal/store"
 )
 
@@ -158,7 +159,7 @@ func TestRouterRoundTripOverAgentSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	requestBody := []byte(`{"wanInterface":"eth0","wanMacMode":"current","lanInterfaces":["eth1","eth2"],"bridge":"br0","lanCidr":"192.168.10.1/24","dhcpStart":"192.168.10.10","dhcpEnd":"192.168.10.200","dns":["8.8.8.8"],"managerPort":8080,"managerWanAccess":true}`)
+	requestBody := []byte(`{"wanInterface":"eth0","wanMacMode":"current","lanInterfaces":["eth1","eth2"],"bridge":"br0","lanCidr":"192.168.10.1/24","dhcpStart":"192.168.10.10","dhcpEnd":"192.168.10.200","dns":["8.8.8.8"],"managerPort":8080,"managerWanAccess":true,"sshWanAccess":true}`)
 	post := func(path string, body []byte) map[string]any {
 		req, _ := http.NewRequest(http.MethodPost, ts.URL+path, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -204,7 +205,10 @@ func TestRouterRoundTripOverAgentSocket(t *testing.T) {
 	if err := json.NewDecoder(confirmResponse.Body).Decode(&confirmed); err != nil || confirmed["confirmed"] != true {
 		t.Fatal("apply was not confirmed")
 	}
-	if state.Snapshot().RouterConfig == nil || len(state.Snapshot().RouterConfig.WANPorts) != 1 {
-		t.Fatal("manager access was not stored as an ordinary firewall rule")
+	if state.Snapshot().RouterConfig == nil || len(state.Snapshot().RouterConfig.WANPorts) != 2 {
+		t.Fatal("manager and SSH access were not stored as ordinary firewall rules")
+	}
+	if !model.TCPPortOpen(state.Snapshot().RouterConfig.WANPorts, 8080) || !model.TCPPortOpen(state.Snapshot().RouterConfig.WANPorts, 22) {
+		t.Fatal("manager or SSH WAN rule is missing")
 	}
 }
